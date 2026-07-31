@@ -31,16 +31,37 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Secure Multer Storage: Filename sanitization against Path Traversal
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+  filename: (req, file, cb) => {
+    const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, `${Date.now()}-${safeName}`);
+  }
 });
-const upload = multer({ storage });
+
+// File Type Filter: Block executable or dangerous file uploads
+const fileFilter = (req, file, cb) => {
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.txt', '.zip', '.md', '.json', '.csv', '.doc', '.docx'];
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (allowedExtensions.includes(ext)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Executable or hazardous extensions are strictly forbidden.'));
+  }
+};
+
+const upload = multer({ 
+  storage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+
 app.use('/uploads', express.static(uploadsDir));
 
-// --- STRICT ROLE-BASED ACCESS CONTROL (RBAC) & IDOR PROTECTION MIDDLEWARE ---
+// --- COMPREHENSIVE SECURITY & IDOR PROTECTION MIDDLEWARE ---
 
-// 1. Middleware: Authenticate User from Session/Header
+// 1. Session Authentication Middleware
 function authenticateUser(req, res, next) {
   const userId = req.headers['x-user-id'] || (req.body && req.body.authenticated_user_id) || 'u_dev';
   const user = db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE id = ? OR username = ?').get(userId, userId);
@@ -54,32 +75,36 @@ function authenticateUser(req, res, next) {
   next();
 }
 
-// 2. Middleware: Enforce Resource Ownership & Anti-URL Tampering (IDOR Protection)
-// Prevents users from accessing or modifying another member's private resources via URL tampering
-function enforceResourceOwnership(targetUserIdParam = 'user_id') {
+// 2. Strict Team & Resource Ownership Verification (IDOR Defense)
+function verifyTeamOwnershipOrPrivilege(teamIdParam = 'id') {
   return (req, res, next) => {
-    const authenticatedUser = req.user;
-    if (!authenticatedUser) return res.status(401).json({ error: 'Authentication required' });
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
 
-    // Privileged roles can inspect/manage member resources within cohort scope
-    const isPrivileged = ['TEACHER', 'STUDENT_LEADER', 'DEV_STEALTH'].includes(authenticatedUser.role);
-    if (isPrivileged) return next();
+    // Teachers, Student Leaders, and Stealth Dev have global team management authority
+    if (['TEACHER', 'STUDENT_LEADER', 'DEV_STEALTH'].includes(user.role)) {
+      return next();
+    }
 
-    // Determine target user ID from URL params, query, or body
-    const targetUserId = req.params[targetUserIdParam] || req.query[targetUserIdParam] || (req.body && req.body[targetUserIdParam]);
+    const teamId = req.params[teamIdParam] || req.body.team_id || req.body.id;
+    if (!teamId) return res.status(400).json({ error: 'Team ID required' });
 
-    // If target user ID is specified and does NOT match the authenticated user's ID -> Block URL tampering!
-    if (targetUserId && targetUserId !== authenticatedUser.id) {
-      return res.status(403).json({ 
-        error: 'Access Denied: You cannot view or modify resources belonging to another user.' 
-      });
+    const team = db.prepare('SELECT captain_id FROM teams WHERE id = ?').get(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    // Check if user is either Team Captain or an assigned member of this specific team
+    const membership = db.prepare('SELECT id FROM team_memberships WHERE team_id = ? AND user_id = ?').get(teamId, user.id);
+    const isCaptain = team.captain_id === user.id;
+
+    if (!isCaptain && !membership) {
+      return res.status(403).json({ error: 'Forbidden: You do not belong to this team and cannot alter its resources or point shares.' });
     }
 
     next();
   };
 }
 
-// 3. Middleware: Require Student Leader or Teacher or Dev Stealth Authority
+// 3. Require Student Leader / Teacher / Stealth Dev Role
 function requireLeaderOrTeacher(req, res, next) {
   const user = req.user;
   if (!user) return res.status(401).json({ error: 'Authentication required' });
@@ -91,7 +116,7 @@ function requireLeaderOrTeacher(req, res, next) {
   next();
 }
 
-// 4. Middleware: Require Teacher or Dev Stealth Authority
+// 4. Require Teacher or Stealth Dev Role
 function requireTeacher(req, res, next) {
   const user = req.user;
   if (!user) return res.status(401).json({ error: 'Authentication required' });
@@ -155,7 +180,7 @@ app.use(authenticateUser);
 
 // --- REST API ENDPOINTS ---
 
-// 1. Flexible Authentication Endpoint
+// Authentication Endpoint
 app.post('/api/auth/login', (req, res) => {
   const { identifier, password } = req.body;
   if (!identifier || !password) return res.status(400).json({ error: 'Identifier and password required' });
@@ -202,15 +227,19 @@ app.get('/api/users', (req, res) => {
   res.json(sanitized);
 });
 
+// Create User (Privilege Escalation Protected)
 app.post('/api/users', requireTeacher, (req, res) => {
   const { id, name, username, email, phone, password_hash, role, tag } = req.body;
   if (!name || !username || !email) return res.status(400).json({ error: 'Name, username, and email required' });
+
+  // Privilege Escalation Prevention: Prevent assigning DEV_STEALTH via user creation API
+  const requestedRole = (role === 'DEV_STEALTH') ? 'OPERATIVE' : (role || 'OPERATIVE');
 
   const userId = id || `u_${Date.now()}`;
   db.prepare(`
     INSERT INTO users (id, name, username, email, phone, password_hash, role, tag)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(userId, name, username, email, phone || null, password_hash || 'pass123', role || 'OPERATIVE', tag || null);
+  `).run(userId, name, username, email, phone || null, password_hash || 'pass123', requestedRole, tag || null);
 
   res.json({ success: true, userId });
 });
@@ -258,7 +287,7 @@ app.post('/api/student-leaders/rotate', requireTeacher, (req, res) => {
   res.json({ success: true, active_leaders: activeLeaders });
 });
 
-// 2. Tasks & Task Marketplace Endpoints
+// Tasks & Task Marketplace Endpoints
 app.get('/api/tasks', (req, res) => {
   const official = db.prepare(`
     SELECT t.*, tm.name as assigned_team_name, u.name as assigned_user_name
@@ -332,7 +361,7 @@ app.delete('/api/tasks/:id/upvote', (req, res) => {
   }
 });
 
-// Student Leader Assign Marketplace Task to Team or Individual (RBAC Enforced)
+// Assign Marketplace Task to Team or Individual (RBAC Enforced)
 app.post('/api/tasks/:id/assign', requireLeaderOrTeacher, (req, res) => {
   const { id } = req.params;
   const { team_id, user_id } = req.body;
@@ -355,10 +384,27 @@ app.post('/api/tasks/:id/assign', requireLeaderOrTeacher, (req, res) => {
   res.json({ success: true });
 });
 
-// Team Captain Submit Task Proof
+// Submit Task Proof (IDOR & Assignment Verification Protected)
 app.post('/api/tasks/:id/submit', upload.single('proof_file'), (req, res) => {
   const { id } = req.params;
   const { proof_notes } = req.body;
+  const user = req.user;
+
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+
+  // IDOR & Assignment Protection: User must be assigned to task, belong to assigned team, or have leader/teacher role
+  if (!['TEACHER', 'STUDENT_LEADER', 'DEV_STEALTH'].includes(user.role)) {
+    if (task.assigned_user_id && task.assigned_user_id !== user.id) {
+      return res.status(403).json({ error: 'Forbidden: You are not assigned to this individual task.' });
+    }
+    if (task.assigned_team_id) {
+      const membership = db.prepare('SELECT id FROM team_memberships WHERE team_id = ? AND user_id = ?').get(task.assigned_team_id, user.id);
+      if (!membership) {
+        return res.status(403).json({ error: 'Forbidden: You are not a member of the team assigned to this task.' });
+      }
+    }
+  }
 
   const proofUrl = req.file ? `/uploads/${req.file.filename}` : null;
   const subId = `sub_${Date.now()}`;
@@ -366,7 +412,7 @@ app.post('/api/tasks/:id/submit', upload.single('proof_file'), (req, res) => {
   db.prepare(`
     INSERT INTO task_submissions (id, task_id, submitted_by, proof_url, proof_notes, status)
     VALUES (?, ?, ?, ?, ?, 'PENDING')
-  `).run(subId, id, req.user.id, proofUrl, proof_notes || '');
+  `).run(subId, id, user.id, proofUrl, proof_notes || '');
 
   db.prepare("UPDATE tasks SET status = 'PENDING_APPROVAL' WHERE id = ?").run(id);
 
@@ -430,7 +476,7 @@ app.post('/api/tasks/:id/complete', requireLeaderOrTeacher, (req, res) => {
   res.json({ success: true, taskId: id, status: 'COMPLETED', auto_dissolved: dissolved });
 });
 
-// 3. Teams & Dynamic Point Share Endpoints
+// Teams & Dynamic Point Share Endpoints
 app.get('/api/teams', (req, res) => {
   const teams = db.prepare(`
     SELECT t.*, u.name as captain_name, tk.title as task_title 
@@ -498,8 +544,8 @@ app.post('/api/teams/create', requireLeaderOrTeacher, (req, res) => {
   res.json({ success: true, teamId });
 });
 
-// Point Override for Team Member (Resource Ownership & Anti-URL Tampering Protection Enforced)
-app.post('/api/teams/:id/points/override', enforceResourceOwnership('user_id'), (req, res) => {
+// Point Override for Team Member (IDOR & Team Membership Protected)
+app.post('/api/teams/:id/points/override', verifyTeamOwnershipOrPrivilege('id'), (req, res) => {
   const { id } = req.params;
   const { user_id, custom_point_share } = req.body;
 
@@ -519,7 +565,7 @@ app.post('/api/teams/:id/points/override', enforceResourceOwnership('user_id'), 
   res.json({ success: true });
 });
 
-app.post('/api/teams/redistribute-points', enforceResourceOwnership('user_id'), (req, res) => {
+app.post('/api/teams/redistribute-points', verifyTeamOwnershipOrPrivilege('team_id'), (req, res) => {
   const { team_id, user_id, custom_point_share } = req.body;
   if (!team_id || !user_id || typeof custom_point_share !== 'number' || isNaN(custom_point_share) || custom_point_share < 0 || !isFinite(custom_point_share)) {
     return res.status(400).json({ error: 'Team ID, User ID, and valid custom_point_share required' });
@@ -551,7 +597,7 @@ app.post('/api/teams/:id/dissolve', requireLeaderOrTeacher, (req, res) => {
   res.json({ success: true, teamId: id, is_active: 0 });
 });
 
-// 4. The Hall of Fame Endpoints
+// The Hall of Fame Endpoints
 app.get('/api/hall-of-fame', (req, res) => {
   const allTime = getHallOfFameLeaderboard();
   const season1 = getHallOfFameLeaderboard();
@@ -592,6 +638,14 @@ app.post('/api/hall-of-fame/titles', requireLeaderOrTeacher, (req, res) => {
   `).run(titleId, title_name, category || 'Academics', awarded_to_user_id || null, awarded_to_team_id || null, season || 'Season 1');
 
   res.json({ success: true, titleId });
+});
+
+// Error handling middleware for multer / file upload errors
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err.message.includes('Invalid file type')) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
 });
 
 // Serve frontend for all unmatched routes
