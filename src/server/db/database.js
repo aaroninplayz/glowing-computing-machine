@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,26 +9,27 @@ const dbPath = path.join(__dirname, 'forge.db');
 
 export const db = new Database(dbPath);
 
-// Enable WAL mode for performance
 db.pragma('journal_mode = WAL');
 
-// Initialize database schema
 export function initSchema() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      username TEXT UNIQUE NOT NULL,
       email TEXT UNIQUE NOT NULL,
+      phone TEXT UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'OPERATIVE',
+      tag TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS teams (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      description TEXT,
       captain_id TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (captain_id) REFERENCES users (id)
     );
@@ -38,56 +38,48 @@ export function initSchema() {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       team_id TEXT NOT NULL,
+      custom_point_share REAL DEFAULT 1.0,
       joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users (id),
       FOREIGN KEY (team_id) REFERENCES teams (id),
       UNIQUE(user_id, team_id)
     );
 
-    CREATE TABLE IF NOT EXISTS learning_activities (
+    CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
-      points INTEGER NOT NULL DEFAULT 10,
+      total_points INTEGER NOT NULL DEFAULT 10,
+      is_marketplace INTEGER NOT NULL DEFAULT 0,
+      upvotes INTEGER NOT NULL DEFAULT 0,
+      assigned_team_id TEXT,
       requires_proof INTEGER NOT NULL DEFAULT 0,
-      requires_approval INTEGER NOT NULL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      status TEXT NOT NULL DEFAULT 'AVAILABLE',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (assigned_team_id) REFERENCES teams (id)
     );
 
-    CREATE TABLE IF NOT EXISTS activity_progress (
+    CREATE TABLE IF NOT EXISTS task_submissions (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      activity_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+      task_id TEXT NOT NULL,
+      submitted_by TEXT NOT NULL,
       proof_url TEXT,
       proof_notes TEXT,
-      submitted_at DATETIME,
-      reviewed_by TEXT,
-      reviewed_at DATETIME,
-      FOREIGN KEY (user_id) REFERENCES users (id),
-      FOREIGN KEY (activity_id) REFERENCES learning_activities (id),
-      FOREIGN KEY (reviewed_by) REFERENCES users (id)
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (task_id) REFERENCES tasks (id),
+      FOREIGN KEY (submitted_by) REFERENCES users (id)
     );
 
-    CREATE TABLE IF NOT EXISTS collaborative_challenges (
+    CREATE TABLE IF NOT EXISTS hall_of_fame_titles (
       id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      points INTEGER NOT NULL DEFAULT 50,
-      start_date DATETIME,
-      end_date DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS resources (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      url TEXT NOT NULL,
-      category TEXT NOT NULL DEFAULT 'General',
-      file_type TEXT NOT NULL DEFAULT 'link',
-      uploaded_by TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (uploaded_by) REFERENCES users (id)
+      title_name TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'Academics',
+      awarded_to_user_id TEXT,
+      awarded_to_team_id TEXT,
+      awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (awarded_to_user_id) REFERENCES users (id),
+      FOREIGN KEY (awarded_to_team_id) REFERENCES teams (id)
     );
   `);
 }
