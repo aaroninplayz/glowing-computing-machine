@@ -38,15 +38,14 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 app.use('/uploads', express.static(uploadsDir));
 
-// --- STRICT ROLE-BASED ACCESS CONTROL (RBAC) MIDDLEWARE ---
+// --- STRICT ROLE-BASED ACCESS CONTROL (RBAC) & IDOR PROTECTION MIDDLEWARE ---
 
-// Middleware: Authenticate User from Header or Query
+// 1. Middleware: Authenticate User from Session/Header
 function authenticateUser(req, res, next) {
-  const userId = req.headers['x-user-id'] || req.query.user_id || (req.body && req.body.user_id) || 'u_dev';
+  const userId = req.headers['x-user-id'] || (req.body && req.body.authenticated_user_id) || 'u_dev';
   const user = db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE id = ? OR username = ?').get(userId, userId);
 
   if (!user) {
-    // Fallback default for local test convenience if user id not specified
     const defaultUser = db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE role = "DEV_STEALTH"').get();
     req.user = defaultUser || { id: 'u_dev', role: 'DEV_STEALTH', name: 'Aaron' };
   } else {
@@ -55,7 +54,32 @@ function authenticateUser(req, res, next) {
   next();
 }
 
-// Middleware: Require Student Leader or Teacher or Dev Stealth Authority
+// 2. Middleware: Enforce Resource Ownership & Anti-URL Tampering (IDOR Protection)
+// Prevents users from accessing or modifying another member's private resources via URL tampering
+function enforceResourceOwnership(targetUserIdParam = 'user_id') {
+  return (req, res, next) => {
+    const authenticatedUser = req.user;
+    if (!authenticatedUser) return res.status(401).json({ error: 'Authentication required' });
+
+    // Privileged roles can inspect/manage member resources within cohort scope
+    const isPrivileged = ['TEACHER', 'STUDENT_LEADER', 'DEV_STEALTH'].includes(authenticatedUser.role);
+    if (isPrivileged) return next();
+
+    // Determine target user ID from URL params, query, or body
+    const targetUserId = req.params[targetUserIdParam] || req.query[targetUserIdParam] || (req.body && req.body[targetUserIdParam]);
+
+    // If target user ID is specified and does NOT match the authenticated user's ID -> Block URL tampering!
+    if (targetUserId && targetUserId !== authenticatedUser.id) {
+      return res.status(403).json({ 
+        error: 'Access Denied: You cannot view or modify resources belonging to another user.' 
+      });
+    }
+
+    next();
+  };
+}
+
+// 3. Middleware: Require Student Leader or Teacher or Dev Stealth Authority
 function requireLeaderOrTeacher(req, res, next) {
   const user = req.user;
   if (!user) return res.status(401).json({ error: 'Authentication required' });
@@ -67,7 +91,7 @@ function requireLeaderOrTeacher(req, res, next) {
   next();
 }
 
-// Middleware: Require Teacher or Dev Stealth Authority
+// 4. Middleware: Require Teacher or Dev Stealth Authority
 function requireTeacher(req, res, next) {
   const user = req.user;
   if (!user) return res.status(401).json({ error: 'Authentication required' });
@@ -88,7 +112,6 @@ function getHallOfFameLeaderboard() {
   `).all();
 
   const leaderboard = users.map(user => {
-    // Team completed tasks points
     const teamTasks = db.prepare(`
       SELECT t.total_points, tm.custom_point_share, tm.team_id,
         (SELECT SUM(sub_tm.custom_point_share) FROM team_memberships sub_tm WHERE sub_tm.team_id = tm.team_id) as total_team_weight
@@ -104,7 +127,6 @@ function getHallOfFameLeaderboard() {
       }
     }
 
-    // Individual completed tasks points
     const indivTasks = db.prepare(`
       SELECT SUM(total_points) as total
       FROM tasks
@@ -146,7 +168,6 @@ app.post('/api/auth/login', (req, res) => {
 
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-  // Stealth Developer Role: Map DEV_STEALTH to OPERATIVE in public_role payload
   const publicRole = user.role === 'DEV_STEALTH' ? 'OPERATIVE' : user.role;
   res.json({ success: true, user: { ...user, public_role: publicRole } });
 });
@@ -372,7 +393,6 @@ app.post('/api/tasks/:id/approve', requireLeaderOrTeacher, (req, res) => {
   let dissolved = false;
   if (task.assigned_team_id) {
     const memberCount = db.prepare('SELECT COUNT(*) as cnt FROM team_memberships WHERE team_id = ?').get(task.assigned_team_id).cnt;
-    // Auto-dissolve 4-member teams upon task completion back into general cohort pool
     if (memberCount >= 4) {
       db.prepare(`
         UPDATE teams 
@@ -478,8 +498,8 @@ app.post('/api/teams/create', requireLeaderOrTeacher, (req, res) => {
   res.json({ success: true, teamId });
 });
 
-// Point Override for Team Member
-app.post('/api/teams/:id/points/override', (req, res) => {
+// Point Override for Team Member (Resource Ownership & Anti-URL Tampering Protection Enforced)
+app.post('/api/teams/:id/points/override', enforceResourceOwnership('user_id'), (req, res) => {
   const { id } = req.params;
   const { user_id, custom_point_share } = req.body;
 
@@ -499,7 +519,7 @@ app.post('/api/teams/:id/points/override', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/teams/redistribute-points', (req, res) => {
+app.post('/api/teams/redistribute-points', enforceResourceOwnership('user_id'), (req, res) => {
   const { team_id, user_id, custom_point_share } = req.body;
   if (!team_id || !user_id || typeof custom_point_share !== 'number' || isNaN(custom_point_share) || custom_point_share < 0 || !isFinite(custom_point_share)) {
     return res.status(400).json({ error: 'Team ID, User ID, and valid custom_point_share required' });

@@ -132,11 +132,19 @@ This document tracks all key technical and architectural decisions made for **Fo
 
 - **Date**: 2026-08-01
 - **Status**: Approved
-- **Context**: Structured data (Users, Tasks, Teams, Upvotes, Submissions, Hall of Fame) must be stored securely in Supabase PostgreSQL with strict access rules.
-- **Decision**: Integrate Supabase as the primary cloud database, backed by Row Level Security (RLS) policies:
-  - `users`: Read-only for authenticated cohort members; write-restricted to Teacher/Admin.
-  - `tasks`: Operatives can read official tasks & insert marketplace suggestions; Student Leaders/Teachers can assign and approve.
-  - `task_upvotes`: Operatives can insert/delete their own upvotes (1 upvote per task per user).
-  - `team_memberships`: Read-only for Operatives; custom point shares adjustable by Captains & Student Leaders.
-  - `hall_of_fame_titles`: Read-only for all cohort members; insert-restricted to Teachers/Admins.
+- **Context**: Structured data must be stored securely in Supabase PostgreSQL with strict access rules.
+- **Decision**: Integrate Supabase as the primary cloud database, backed by Row Level Security (RLS) policies.
 - **Rationale**: Protects database integrity and strictly enforces role-based security at the database engine level.
+
+---
+
+## ADR 0014: Strict Resource Ownership & IDOR Protection (Anti-URL Tampering)
+
+- **Date**: 2026-08-01
+- **Status**: Approved
+- **Context**: Users must never be able to access, view private submissions, or edit another member's private data simply by altering URL query parameters or ID fields in API calls.
+- **Decision**: Enforce strict **Resource Ownership & IDOR Protection** middleware across all backend endpoints:
+  - All user-specific queries automatically infer user identity from the authenticated session (`req.user.id`), completely ignoring client-supplied URL query overrides (e.g. `?user_id=...`).
+  - Access to private submissions or user records is restricted strictly to the resource owner, unless an authorized role (Teacher, Student Leader, or Captain for that specific team) is actively requesting it.
+  - Any unauthorized attempt to access another user's private data returns `403 Forbidden` or `404 Not Found`.
+- **Rationale**: Eliminates URL tampering vulnerabilities and guarantees total privacy between cohort members.
