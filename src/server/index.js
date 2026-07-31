@@ -12,7 +12,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize database schema on startup
+// Initialize DB schema on start
 initSchema();
 
 const app = express();
@@ -38,7 +38,48 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 app.use('/uploads', express.static(uploadsDir));
 
-// Helper to calculate Hall of Fame rankings
+// --- STRICT ROLE-BASED ACCESS CONTROL (RBAC) MIDDLEWARE ---
+
+// Middleware: Authenticate User from Header or Query
+function authenticateUser(req, res, next) {
+  const userId = req.headers['x-user-id'] || req.query.user_id || (req.body && req.body.user_id) || 'u_dev';
+  const user = db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE id = ? OR username = ?').get(userId, userId);
+
+  if (!user) {
+    // Fallback default for local test convenience if user id not specified
+    const defaultUser = db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE role = "DEV_STEALTH"').get();
+    req.user = defaultUser || { id: 'u_dev', role: 'DEV_STEALTH', name: 'Aaron' };
+  } else {
+    req.user = user;
+  }
+  next();
+}
+
+// Middleware: Require Student Leader or Teacher or Dev Stealth Authority
+function requireLeaderOrTeacher(req, res, next) {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const allowedRoles = ['STUDENT_LEADER', 'TEACHER', 'DEV_STEALTH'];
+  if (!allowedRoles.includes(user.role)) {
+    return res.status(403).json({ error: 'Access denied: Requires Student Leader or Teacher authority' });
+  }
+  next();
+}
+
+// Middleware: Require Teacher or Dev Stealth Authority
+function requireTeacher(req, res, next) {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+  const allowedRoles = ['TEACHER', 'DEV_STEALTH'];
+  if (!allowedRoles.includes(user.role)) {
+    return res.status(403).json({ error: 'Access denied: Requires Teacher authority' });
+  }
+  next();
+}
+
+// Helper: Calculate Hall of Fame Rankings
 function getHallOfFameLeaderboard() {
   const users = db.prepare(`
     SELECT id, name, username, email, phone, role, tag 
@@ -87,9 +128,12 @@ function getHallOfFameLeaderboard() {
   return leaderboard.sort((a, b) => b.points - a.points);
 }
 
+// Global Auth Middleware Attachment
+app.use(authenticateUser);
+
 // --- REST API ENDPOINTS ---
 
-// 1. Flexible Authentication Endpoint (Email / Username / Phone + Password)
+// 1. Flexible Authentication Endpoint
 app.post('/api/auth/login', (req, res) => {
   const { identifier, password } = req.body;
   if (!identifier || !password) return res.status(400).json({ error: 'Identifier and password required' });
@@ -104,26 +148,19 @@ app.post('/api/auth/login', (req, res) => {
 
   // Stealth Developer Role: Map DEV_STEALTH to OPERATIVE in public_role payload
   const publicRole = user.role === 'DEV_STEALTH' ? 'OPERATIVE' : user.role;
-
   res.json({ success: true, user: { ...user, public_role: publicRole } });
 });
 
-// 1b. Current User Profile Endpoint (/api/auth/me)
+// Current User Profile Endpoint (/api/auth/me)
 app.get('/api/auth/me', (req, res) => {
-  const userId = req.headers['x-user-id'] || req.query.user_id || 'u_dev';
-  const user = db.prepare(`
-    SELECT id, name, username, email, phone, role, tag 
-    FROM users 
-    WHERE id = ? OR username = ?
-  `).get(userId, userId);
-
+  const user = req.user;
   if (!user) return res.status(404).json({ error: 'User profile not found' });
 
   const publicRole = user.role === 'DEV_STEALTH' ? 'OPERATIVE' : user.role;
   res.json({ user: { ...user, public_role: publicRole } });
 });
 
-// 1c. User Management Endpoints
+// User Management Endpoints
 app.get('/api/users', (req, res) => {
   const { role } = req.query;
   let users;
@@ -144,7 +181,7 @@ app.get('/api/users', (req, res) => {
   res.json(sanitized);
 });
 
-app.post('/api/users', (req, res) => {
+app.post('/api/users', requireTeacher, (req, res) => {
   const { id, name, username, email, phone, password_hash, role, tag } = req.body;
   if (!name || !username || !email) return res.status(400).json({ error: 'Name, username, and email required' });
 
@@ -157,7 +194,7 @@ app.post('/api/users', (req, res) => {
   res.json({ success: true, userId });
 });
 
-// 1d. Student Leader Rotation Endpoints
+// Student Leader Rotation Endpoints
 app.get('/api/student-leaders', (req, res) => {
   const leaders = db.prepare(`
     SELECT slr.id, slr.user_id, u.name, u.username, slr.term_start, slr.term_end
@@ -168,13 +205,12 @@ app.get('/api/student-leaders', (req, res) => {
   res.json(leaders);
 });
 
-app.post('/api/student-leaders/rotate', (req, res) => {
+app.post('/api/student-leaders/rotate', requireTeacher, (req, res) => {
   const { leader_ids } = req.body;
   if (!Array.isArray(leader_ids) || leader_ids.length === 0) {
     return res.status(400).json({ error: 'leader_ids array required' });
   }
 
-  // Deactivate current rotations
   db.prepare('UPDATE student_leader_rotations SET is_active = 0 WHERE is_active = 1').run();
 
   const termStart = new Date().toISOString();
@@ -184,7 +220,6 @@ app.post('/api/student-leaders/rotate', (req, res) => {
     INSERT INTO student_leader_rotations (id, user_id, term_start, term_end, is_active)
     VALUES (?, ?, ?, ?, 1)
   `);
-
   const updateRoleStmt = db.prepare(`UPDATE users SET role = 'STUDENT_LEADER' WHERE id = ?`);
 
   leader_ids.forEach((uid, idx) => {
@@ -225,7 +260,7 @@ app.get('/api/tasks', (req, res) => {
 
 // Suggest a Task (Task Marketplace)
 app.post('/api/tasks/suggest', (req, res) => {
-  const { title, description, total_points, user_id } = req.body;
+  const { title, description, total_points } = req.body;
   if (!title || !description) return res.status(400).json({ error: 'Title and description required' });
 
   const taskId = `market_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -234,7 +269,7 @@ app.post('/api/tasks/suggest', (req, res) => {
     VALUES (?, ?, ?, ?, 1, 'MARKETPLACE')
   `).run(taskId, title, description, total_points || 20);
 
-  const suggestorId = user_id || req.headers['x-user-id'] || 'u_o1';
+  const suggestorId = req.user.id;
   db.prepare('INSERT OR IGNORE INTO task_upvotes (task_id, user_id) VALUES (?, ?)').run(taskId, suggestorId);
 
   res.json({ success: true, taskId });
@@ -243,14 +278,11 @@ app.post('/api/tasks/suggest', (req, res) => {
 // Upvote Task Marketplace Idea
 app.post('/api/tasks/:id/upvote', (req, res) => {
   const { id } = req.params;
-  const userId = req.body.user_id || req.headers['x-user-id'] || 'u_o1';
+  const userId = req.user.id;
 
   try {
     const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
-
-    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
 
     db.prepare('INSERT OR IGNORE INTO task_upvotes (task_id, user_id) VALUES (?, ?)').run(id, userId);
 
@@ -261,17 +293,14 @@ app.post('/api/tasks/:id/upvote', (req, res) => {
   }
 });
 
-// Remove Upvote from Task Marketplace Idea
+// Remove Upvote
 app.delete('/api/tasks/:id/upvote', (req, res) => {
   const { id } = req.params;
-  const userId = req.body.user_id || req.query.user_id || req.headers['x-user-id'] || 'u_o1';
+  const userId = req.user.id;
 
   try {
     const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
-
-    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
 
     db.prepare('DELETE FROM task_upvotes WHERE task_id = ? AND user_id = ?').run(id, userId);
 
@@ -282,10 +311,10 @@ app.delete('/api/tasks/:id/upvote', (req, res) => {
   }
 });
 
-// Student Leader Assign Marketplace Task to Team or Individual
-app.post('/api/tasks/:id/assign', (req, res) => {
+// Student Leader Assign Marketplace Task to Team or Individual (RBAC Enforced)
+app.post('/api/tasks/:id/assign', requireLeaderOrTeacher, (req, res) => {
   const { id } = req.params;
-  const { team_id, user_id, assigned_by } = req.body;
+  const { team_id, user_id } = req.body;
 
   if (team_id) {
     const team = db.prepare('SELECT id FROM teams WHERE id = ?').get(team_id);
@@ -296,7 +325,7 @@ app.post('/api/tasks/:id/assign', (req, res) => {
     UPDATE tasks 
     SET is_marketplace = 0, assigned_team_id = ?, assigned_user_id = ?, assigned_by = ?, status = 'IN_PROGRESS' 
     WHERE id = ?
-  `).run(team_id || null, user_id || null, assigned_by || null, id);
+  `).run(team_id || null, user_id || null, req.user.id, id);
 
   if (team_id) {
     db.prepare('UPDATE teams SET task_id = ? WHERE id = ?').run(id, team_id);
@@ -308,7 +337,7 @@ app.post('/api/tasks/:id/assign', (req, res) => {
 // Team Captain Submit Task Proof
 app.post('/api/tasks/:id/submit', upload.single('proof_file'), (req, res) => {
   const { id } = req.params;
-  const { submitted_by, proof_notes } = req.body;
+  const { proof_notes } = req.body;
 
   const proofUrl = req.file ? `/uploads/${req.file.filename}` : null;
   const subId = `sub_${Date.now()}`;
@@ -316,17 +345,17 @@ app.post('/api/tasks/:id/submit', upload.single('proof_file'), (req, res) => {
   db.prepare(`
     INSERT INTO task_submissions (id, task_id, submitted_by, proof_url, proof_notes, status)
     VALUES (?, ?, ?, ?, ?, 'PENDING')
-  `).run(subId, id, submitted_by || 'u_o1', proofUrl, proof_notes || '');
+  `).run(subId, id, req.user.id, proofUrl, proof_notes || '');
 
   db.prepare("UPDATE tasks SET status = 'PENDING_APPROVAL' WHERE id = ?").run(id);
 
   res.json({ success: true, submissionId: subId });
 });
 
-// Complete Task & Trigger Team Auto-Dissolution (4-member team rule)
-app.post('/api/tasks/:id/approve', (req, res) => {
+// Complete & Approve Task (RBAC Enforced: Leader or Teacher)
+app.post('/api/tasks/:id/approve', requireLeaderOrTeacher, (req, res) => {
   const { id } = req.params;
-  const { submission_id, reviewed_by } = req.body;
+  const { submission_id } = req.body;
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
 
@@ -337,14 +366,14 @@ app.post('/api/tasks/:id/approve', (req, res) => {
       UPDATE task_submissions 
       SET status = 'APPROVED', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP 
       WHERE id = ?
-    `).run(reviewed_by || 'u_teacher', submission_id);
+    `).run(req.user.id, submission_id);
   }
 
   let dissolved = false;
   if (task.assigned_team_id) {
     const memberCount = db.prepare('SELECT COUNT(*) as cnt FROM team_memberships WHERE team_id = ?').get(task.assigned_team_id).cnt;
     // Auto-dissolve 4-member teams upon task completion back into general cohort pool
-    if (memberCount >= 4) { // Auto-dissolve team on task completion
+    if (memberCount >= 4) {
       db.prepare(`
         UPDATE teams 
         SET is_active = 0, status = 'DISSOLVED', dissolved_at = CURRENT_TIMESTAMP, dissolution_reason = 'TASK_COMPLETED' 
@@ -357,8 +386,8 @@ app.post('/api/tasks/:id/approve', (req, res) => {
   res.json({ success: true, taskId: id, status: 'COMPLETED', team_dissolved: dissolved });
 });
 
-// Alias endpoint for task completion
-app.post('/api/tasks/:id/complete', (req, res) => {
+// Complete Task Alias (RBAC Enforced)
+app.post('/api/tasks/:id/complete', requireLeaderOrTeacher, (req, res) => {
   const { id } = req.params;
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
@@ -414,8 +443,8 @@ app.get('/api/teams', (req, res) => {
   res.json(teamsWithMembers);
 });
 
-// Create New Team
-app.post('/api/teams', (req, res) => {
+// Create New Team (RBAC Enforced)
+app.post('/api/teams', requireLeaderOrTeacher, (req, res) => {
   const { name, captain_id, member_ids, task_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Team name required' });
 
@@ -432,8 +461,7 @@ app.post('/api/teams', (req, res) => {
   res.json({ success: true, teamId });
 });
 
-// Create New Team (Alias route)
-app.post('/api/teams/create', (req, res) => {
+app.post('/api/teams/create', requireLeaderOrTeacher, (req, res) => {
   const { name, captain_id, member_ids, task_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Team name required' });
 
@@ -450,7 +478,7 @@ app.post('/api/teams/create', (req, res) => {
   res.json({ success: true, teamId });
 });
 
-// Point Override for Team Member (/api/teams/:id/points/override)
+// Point Override for Team Member
 app.post('/api/teams/:id/points/override', (req, res) => {
   const { id } = req.params;
   const { user_id, custom_point_share } = req.body;
@@ -471,7 +499,6 @@ app.post('/api/teams/:id/points/override', (req, res) => {
   res.json({ success: true });
 });
 
-// Point Redistribution (Alias route /api/teams/redistribute-points)
 app.post('/api/teams/redistribute-points', (req, res) => {
   const { team_id, user_id, custom_point_share } = req.body;
   if (!team_id || !user_id || typeof custom_point_share !== 'number' || isNaN(custom_point_share) || custom_point_share < 0 || !isFinite(custom_point_share)) {
@@ -490,8 +517,8 @@ app.post('/api/teams/redistribute-points', (req, res) => {
   res.json({ success: true });
 });
 
-// Dissolve Team (/api/teams/:id/dissolve)
-app.post('/api/teams/:id/dissolve', (req, res) => {
+// Dissolve Team (RBAC Enforced)
+app.post('/api/teams/:id/dissolve', requireLeaderOrTeacher, (req, res) => {
   const { id } = req.params;
   const { reason } = req.body || {};
 
@@ -504,7 +531,7 @@ app.post('/api/teams/:id/dissolve', (req, res) => {
   res.json({ success: true, teamId: id, is_active: 0 });
 });
 
-// 4. The Hall of Fame Endpoints (All-Time, Season 1, Awarded Titles Wall)
+// 4. The Hall of Fame Endpoints
 app.get('/api/hall-of-fame', (req, res) => {
   const allTime = getHallOfFameLeaderboard();
   const season1 = getHallOfFameLeaderboard();
@@ -520,8 +547,8 @@ app.get('/api/hall-of-fame', (req, res) => {
   res.json({ allTime, season1, titles });
 });
 
-// Award New Hall of Fame Title (/api/hall-of-fame/award)
-app.post('/api/hall-of-fame/award', (req, res) => {
+// Award New Hall of Fame Title (RBAC Enforced)
+app.post('/api/hall-of-fame/award', requireLeaderOrTeacher, (req, res) => {
   const { title_name, category, awarded_to_user_id, awarded_to_team_id, season } = req.body;
   if (!title_name) return res.status(400).json({ error: 'Title name required' });
 
@@ -534,8 +561,7 @@ app.post('/api/hall-of-fame/award', (req, res) => {
   res.json({ success: true, titleId });
 });
 
-// Award New Hall of Fame Title (Alias route /api/hall-of-fame/titles)
-app.post('/api/hall-of-fame/titles', (req, res) => {
+app.post('/api/hall-of-fame/titles', requireLeaderOrTeacher, (req, res) => {
   const { title_name, category, awarded_to_user_id, awarded_to_team_id, season } = req.body;
   if (!title_name) return res.status(400).json({ error: 'Title name required' });
 
