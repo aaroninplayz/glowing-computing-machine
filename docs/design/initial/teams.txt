@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Forge | Team Roster</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "surface-container-low": "#f6f3f2",
+                        "on-primary-fixed-variant": "#004b74",
+                        "secondary-fixed-dim": "#ffb3b1",
+                        "outline": "#717880",
+                        "on-tertiary-container": "#fff1e3",
+                        "surface-tint": "#006399",
+                        "secondary-fixed": "#ffdad8",
+                        "surface": "#fcf9f8",
+                        "deep-obsidian": "#191919",
+                        "surface-container-highest": "#e5e2e1",
+                        "tertiary-fixed": "#ffddb6",
+                        "on-secondary-fixed-variant": "#82252a",
+                        "tertiary": "#794d00",
+                        "warm-coral": "#ff8484",
+                        "surface-container-high": "#eae7e7",
+                        "secondary": "#a13c3f",
+                        "on-surface-variant": "#40474f",
+                        "on-surface": "#1c1b1b",
+                        "on-primary-container": "#ecf4ff",
+                        "inverse-on-surface": "#f3f0ef",
+                        "outline-variant": "#c0c7d1",
+                        "surface-container": "#f0eded",
+                        "on-primary": "#ffffff",
+                        "on-secondary-fixed": "#410007",
+                        "on-secondary-container": "#751c22",
+                        "royal-slate-blue": "#2374ab",
+                        "on-tertiary": "#ffffff",
+                        "border-translucent": "rgba(102, 106, 134, 0.2)", /* Muted slate modified for alpha */
+                        "muted-slate": "#666a86",
+                        "ice-blue": "#95b8d1",
+                        "cream-gold": "#e8ddb5",
+                        "on-primary-fixed": "#001d32",
+                        "on-error": "#ffffff",
+                        "inverse-surface": "#313030",
+                        "error-container": "#ffdad6",
+                        "error": "#ba1a1a",
+                        "on-background": "#1c1b1b",
+                        "surface-variant": "#e5e2e1",
+                        "on-secondary": "#ffffff",
+                        "primary-container": "#2374ab",
+                        "tertiary-fixed-dim": "#ffb959",
+                        "surface-dim": "#dcd9d9",
+                        "primary-fixed": "#cde5ff",
+                        "on-tertiary-fixed-variant": "#643f00",
+                        "secondary-container": "#ff8484",
+                        "inverse-primary": "#94ccff",
+                        "tertiary-container": "#9a6300",
+                        "primary": "#005b8c",
+                        "background": "#333333", /* Dark Charcoal */
+                        "sage-white": "#f3f8f2",
+                        "surface-bright": "#fcf9f8",
+                        "primary-fixed-dim": "#94ccff",
+                        "on-tertiary-fixed": "#2a1800"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    spacing: {
+                        "margin-desktop": "64px",
+                        "gutter": "24px",
+                        "max-width": "1280px",
+                        "base": "8px",
+                        "margin-mobile": "16px"
+                    },
+                    fontFamily: {
+                        "label-md": ["Inter"],
+                        "display": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-lg": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #333333;
+            color: #fcf9f8;
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .hover-lift {
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
+        }
+
+        .hover-lift:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            border-color: rgba(102, 106, 134, 0.5);
+        }
+
+        .spring-fill {
+            position: relative;
+            overflow: hidden;
+            transition: color 0.3s ease;
+        }
+
+        .spring-fill::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: #2374ab;
+            transition: width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: -1;
+        }
+
+        .spring-fill:hover::before {
+            width: 300%;
+            height: 300%;
+        }
+
+        .progress-bar-container {
+            height: 4px;
+            background: rgba(102, 106, 134, 0.2);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: #e8ddb5;
+            transition: width 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* Material Symbol weight */
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-background">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-[#333333]/80 backdrop-blur-md border-b border-muted-slate/20">
+<div class="flex justify-between items-center max-w-[1280px] mx-auto px-margin-desktop h-16">
+<div class="flex items-center gap-8">
+<img alt="Forge Wordmark" class="h-6 w-auto" src="https://lh3.googleusercontent.com/aida/AP1WRLssjANYrusSF6A16ZKngGcw0sGk_9zX1N1RbAGBdpzaFz6PL1axoTppyrdQKTmZplDQ4hzW4yLdJXewv5gK_PU117t6BPSc9mzrh9DZVl7oeNhjfSpvCWQ5OI9UEYOkm5LQh9zsDiGIOf8yrXGXSNGIE4EBeeD4KrLgEmD359lWVwhS07zMlzPa6-4pkTt8SBqBut0NVvWbM0aUbiV0tfyVczsNamT3gvGZsM7TvvGuCWAEZTO7rdck4BQ"/>
+<nav class="hidden md:flex gap-6">
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-white transition-colors" href="#">Dashboard</a>
+<a class="font-label-md text-label-md text-royal-slate-blue border-b-2 border-royal-slate-blue pb-1" href="#">Roster</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-white transition-colors" href="#">Projects</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-white transition-colors" href="#">Analytics</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-white transition-transform hover:-translate-y-1">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-white transition-transform hover:-translate-y-1">settings</button>
+<div class="h-8 w-8 rounded-full border border-muted-slate/40 overflow-hidden bg-muted-slate/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-sm">person</span>
+</div>
+</div>
+</div>
+</header>
+<!-- SideNavBar (Desktop Only) -->
+<aside class="h-screen w-64 fixed left-0 top-0 pt-20 bg-[#2b2b2b] border-r border-muted-slate/20 hidden xl:flex flex-col py-8 px-4 z-40">
+<div class="mb-10 px-4">
+<h3 class="font-display text-headline-md font-bold text-on-surface uppercase tracking-tight">Forge</h3>
+<p class="text-xs text-muted-slate font-medium tracking-widest uppercase mt-1">Intellectual Rigor</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 font-label-md text-label-md text-on-surface-variant hover:bg-white/5 transition-colors rounded" href="#">
+<span class="material-symbols-outlined">grid_view</span> Overview
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 font-label-md text-label-md text-royal-slate-blue font-bold bg-white/5 transition-colors rounded" href="#">
+<span class="material-symbols-outlined">group</span> Team Members
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 font-label-md text-label-md text-on-surface-variant hover:bg-white/5 transition-colors rounded" href="#">
+<span class="material-symbols-outlined">assignment_turned_in</span> Task Distribution
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 font-label-md text-label-md text-on-surface-variant hover:bg-white/5 transition-colors rounded" href="#">
+<span class="material-symbols-outlined">trending_up</span> Performance
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 font-label-md text-label-md text-on-surface-variant hover:bg-white/5 transition-colors rounded" href="#">
+<span class="material-symbols-outlined">inventory_2</span> Archive
+            </a>
+</nav>
+<div class="mt-auto border-t border-muted-slate/10 pt-6 px-4 space-y-4">
+<button class="w-full py-2 bg-royal-slate-blue text-white font-label-md text-label-md rounded spring-fill">
+                Invite Member
+            </button>
+<div class="space-y-1">
+<a class="flex items-center gap-3 py-2 text-on-surface-variant text-sm hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-lg">help_outline</span> Help
+                </a>
+<a class="flex items-center gap-3 py-2 text-on-surface-variant text-sm hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-lg">logout</span> Sign Out
+                </a>
+</div>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="xl:ml-64 pt-24 pb-16 px-margin-mobile md:px-margin-desktop max-w-[1280px]">
+<!-- Header Section -->
+<header class="mb-12">
+<h1 class="font-display text-headline-lg font-bold tracking-tight text-white mb-2">Team Roster</h1>
+<div class="flex items-center gap-4 text-muted-slate">
+<span class="text-sm font-medium">FORGE-ALPHA-NODES</span>
+<span class="h-1 w-1 bg-muted-slate/40 rounded-full"></span>
+<span class="text-sm font-medium uppercase tracking-widest">Q3 Performance Cycle</span>
+</div>
+</header>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Team Alpha Roster Card -->
+<div class="lg:col-span-8 bg-[#333333] border border-muted-slate/20 p-8 hover-lift">
+<div class="flex justify-between items-end mb-10">
+<div>
+<h2 class="font-display text-headline-md font-bold text-white mb-1">Team Alpha</h2>
+<p class="text-sm text-muted-slate">4 Active Contributors</p>
+</div>
+<button class="text-xs font-label-md text-royal-slate-blue uppercase tracking-widest border border-royal-slate-blue/30 px-4 py-2 hover:bg-royal-slate-blue hover:text-white transition-all">
+                        Export Logs
+                    </button>
+</div>
+<div class="space-y-0">
+<!-- Captain: Alex Rivera -->
+<div class="group flex items-center justify-between py-6 border-b border-muted-slate/10 hover:bg-white/[0.02] transition-colors px-2 -mx-2">
+<div class="flex items-center gap-6">
+<div class="relative">
+<div class="w-14 h-14 rounded-full border border-ice-blue/30 overflow-hidden bg-muted-slate/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-ice-blue">person</span>
+</div>
+<span class="absolute -top-1 -right-1 flex h-3 w-3">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-ice-blue opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-ice-blue"></span>
+</span>
+</div>
+<div>
+<div class="flex items-center gap-3">
+<h3 class="font-bold text-lg text-white">Alex Rivera</h3>
+<span class="bg-ice-blue/10 text-ice-blue text-[10px] font-bold px-2 py-0.5 rounded-sm tracking-widest uppercase">CAPTAIN</span>
+</div>
+<p class="text-xs text-muted-slate font-medium uppercase tracking-tighter mt-0.5">Systems Architecture</p>
+</div>
+</div>
+<div class="flex items-center gap-12">
+<div class="text-right w-32">
+<span class="text-cream-gold font-bold text-lg block">120% Share</span>
+<div class="progress-bar-container mt-2">
+<div class="progress-bar-fill w-[120%]" style="width: 100%"></div> <!-- Capped visual, data 120 -->
+</div>
+</div>
+<div class="flex items-center gap-3 bg-white/[0.03] border border-muted-slate/10 p-1">
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">-</button>
+<input class="w-12 bg-transparent border-none text-center text-sm font-bold text-white focus:ring-0 p-0" type="text" value="120"/>
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">+</button>
+</div>
+</div>
+</div>
+<!-- Member: Elena Vance -->
+<div class="group flex items-center justify-between py-6 border-b border-muted-slate/10 hover:bg-white/[0.02] transition-colors px-2 -mx-2">
+<div class="flex items-center gap-6">
+<div class="w-14 h-14 rounded-full border border-muted-slate/30 overflow-hidden bg-muted-slate/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-muted-slate">person</span>
+</div>
+<div>
+<h3 class="font-bold text-lg text-white">Elena Vance</h3>
+<p class="text-xs text-muted-slate font-medium uppercase tracking-tighter mt-0.5">Applied Research</p>
+</div>
+</div>
+<div class="flex items-center gap-12">
+<div class="text-right w-32">
+<span class="text-cream-gold font-bold text-lg block">95% Share</span>
+<div class="progress-bar-container mt-2">
+<div class="progress-bar-fill" style="width: 95%"></div>
+</div>
+</div>
+<div class="flex items-center gap-3 bg-white/[0.03] border border-muted-slate/10 p-1">
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">-</button>
+<input class="w-12 bg-transparent border-none text-center text-sm font-bold text-white focus:ring-0 p-0" type="text" value="95"/>
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">+</button>
+</div>
+</div>
+</div>
+<!-- Member: Julian Thorne -->
+<div class="group flex items-center justify-between py-6 border-b border-muted-slate/10 hover:bg-white/[0.02] transition-colors px-2 -mx-2">
+<div class="flex items-center gap-6">
+<div class="w-14 h-14 rounded-full border border-muted-slate/30 overflow-hidden bg-muted-slate/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-muted-slate">person</span>
+</div>
+<div>
+<h3 class="font-bold text-lg text-white">Julian Thorne</h3>
+<p class="text-xs text-muted-slate font-medium uppercase tracking-tighter mt-0.5">Project Integration</p>
+</div>
+</div>
+<div class="flex items-center gap-12">
+<div class="text-right w-32">
+<span class="text-cream-gold font-bold text-lg block">110% Share</span>
+<div class="progress-bar-container mt-2">
+<div class="progress-bar-fill" style="width: 100%"></div>
+</div>
+</div>
+<div class="flex items-center gap-3 bg-white/[0.03] border border-muted-slate/10 p-1">
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">-</button>
+<input class="w-12 bg-transparent border-none text-center text-sm font-bold text-white focus:ring-0 p-0" type="text" value="110"/>
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">+</button>
+</div>
+</div>
+</div>
+<!-- Member: Sasha Gray -->
+<div class="group flex items-center justify-between py-6 hover:bg-white/[0.02] transition-colors px-2 -mx-2">
+<div class="flex items-center gap-6">
+<div class="w-14 h-14 rounded-full border border-muted-slate/30 overflow-hidden bg-muted-slate/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-muted-slate">person</span>
+</div>
+<div>
+<h3 class="font-bold text-lg text-white">Sasha Gray</h3>
+<p class="text-xs text-muted-slate font-medium uppercase tracking-tighter mt-0.5">Quantitative Analysis</p>
+</div>
+</div>
+<div class="flex items-center gap-12">
+<div class="text-right w-32">
+<span class="text-cream-gold font-bold text-lg block">105% Share</span>
+<div class="progress-bar-container mt-2">
+<div class="progress-bar-fill" style="width: 100%"></div>
+</div>
+</div>
+<div class="flex items-center gap-3 bg-white/[0.03] border border-muted-slate/10 p-1">
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">-</button>
+<input class="w-12 bg-transparent border-none text-center text-sm font-bold text-white focus:ring-0 p-0" type="text" value="105"/>
+<button class="w-8 h-8 flex items-center justify-center text-muted-slate hover:text-white hover:bg-white/5 transition-all">+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Stats/Context Panel -->
+<div class="lg:col-span-4 space-y-gutter">
+<!-- Performance Overview -->
+<div class="bg-[#333333] border border-muted-slate/20 p-8 hover-lift">
+<h4 class="text-xs font-bold text-muted-slate uppercase tracking-widest mb-6">Aggregate Velocity</h4>
+<div class="flex items-baseline gap-2 mb-2">
+<span class="text-5xl font-display font-extrabold text-white">430%</span>
+<span class="text-cream-gold text-sm font-medium">Total Yield</span>
+</div>
+<p class="text-sm text-muted-slate leading-relaxed">Team Alpha is currently operating at 107.5% average capacity per member. Adjust point shares to rebalance load.</p>
+<div class="mt-8 space-y-4">
+<div class="flex justify-between items-center text-sm">
+<span class="text-muted-slate">Target Capacity</span>
+<span class="text-white font-medium">400%</span>
+</div>
+<div class="w-full bg-muted-slate/10 h-1 rounded-full overflow-hidden">
+<div class="bg-royal-slate-blue h-full" style="width: 100%"></div>
+<div class="bg-cream-gold h-full" style="width: 30%"></div>
+</div>
+</div>
+</div>
+<!-- Recent Activity -->
+<div class="bg-[#333333] border border-muted-slate/20 p-8 hover-lift">
+<h4 class="text-xs font-bold text-muted-slate uppercase tracking-widest mb-6">Activity Log</h4>
+<div class="space-y-6">
+<div class="flex gap-4">
+<div class="w-2 h-2 rounded-full bg-ice-blue mt-1.5"></div>
+<div>
+<p class="text-sm text-white font-medium">Alex Rivera <span class="text-muted-slate font-normal">adjusted point share for Julian Thorne</span></p>
+<span class="text-[10px] text-muted-slate uppercase mt-1 block">14 minutes ago</span>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="w-2 h-2 rounded-full bg-muted-slate/40 mt-1.5"></div>
+<div>
+<p class="text-sm text-white font-medium">Sasha Gray <span class="text-muted-slate font-normal">completed Node Validation</span></p>
+<span class="text-[10px] text-muted-slate uppercase mt-1 block">2 hours ago</span>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="w-2 h-2 rounded-full bg-muted-slate/40 mt-1.5"></div>
+<div>
+<p class="text-sm text-white font-medium">Elena Vance <span class="text-muted-slate font-normal">uploaded Architecture Draft v2</span></p>
+<span class="text-[10px] text-muted-slate uppercase mt-1 block">5 hours ago</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Micro-interaction Scripts -->
+<script>
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('change', (e) => {
+                const value = e.target.value;
+                const container = e.target.closest('.flex.items-center.gap-12');
+                const label = container.querySelector('.text-cream-gold');
+                const bar = container.querySelector('.progress-bar-fill');
+                
+                label.innerText = `${value}% Share`;
+                const percentage = Math.min(Math.max(value, 0), 100);
+                bar.style.width = `${percentage}%`;
+                
+                // Spring effect on update
+                bar.style.transition = 'none';
+                bar.style.transform = 'scaleX(1.1)';
+                setTimeout(() => {
+                    bar.style.transition = 'all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                    bar.style.transform = 'scaleX(1)';
+                }, 50);
+            });
+        });
+
+        // Simple button logic for increment/decrement
+        document.querySelectorAll('button').forEach(btn => {
+            if (btn.innerText === '+' || btn.innerText === '-') {
+                btn.addEventListener('click', () => {
+                    const input = btn.parentNode.querySelector('input');
+                    let val = parseInt(input.value);
+                    if (btn.innerText === '+') val += 5;
+                    else val -= 5;
+                    input.value = val;
+                    input.dispatchEvent(new Event('change'));
+                });
+            }
+        });
+    </script>
+</body></html>
