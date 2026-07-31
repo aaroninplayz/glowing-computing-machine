@@ -26,17 +26,16 @@ This document tracks all key technical and architectural decisions made for **Fo
 
 ---
 
-## ADR 0003: Technical Stack Selection (React Frontend + Node.js/Express Backend)
+## ADR 0003: Technical Stack Selection (Vanilla HTML/JS + Express Backend)
 
 - **Date**: 2026-07-31
 - **Status**: Approved
-- **Context**: The platform requires clean component-driven UI animations (leveraging React component patterns) and scalable file upload/download handling for resources and activity evidence.
+- **Context**: The platform requires clean component-driven UI animations and zero framework bloat.
 - **Decision**: 
-  - **Frontend**: React (Vite) + Vanilla CSS Modules for flexible styling and smooth animations.
-  - **Backend**: Node.js + Express REST API for clean service separation and file handling.
-  - **Database**: SQLite with Prisma/Kysely for single-file, zero-config persistence during Phase 1 (easily scalable to PostgreSQL later).
-- **Rationale**: Provides high animation flexibility (matching Reactor Bytes component snippets), clean separation between UI and backend services, and scalable file streaming capabilities.
-- **Consequences**: Frontend and backend are decoupled. Backend delivers REST endpoints while frontend renders UI.
+  - **Frontend**: Vanilla HTML5, CSS Custom Properties (Tokens), and ES Module JavaScript.
+  - **Backend**: Node.js + Express REST API for service separation.
+  - **Database**: Supabase PostgreSQL for cloud persistence with local SQLite fallback during dev.
+- **Rationale**: Keeps the application lightweight, fast, and easy to maintain without framework lock-in.
 
 ---
 
@@ -45,91 +44,99 @@ This document tracks all key technical and architectural decisions made for **Fo
 - **Date**: 2026-07-31
 - **Status**: Approved
 - **Context**: The community consists of a fixed, known cohort of ~45 members.
-- **Decision**: Disable public registration endpoints. All 45 member accounts are pre-seeded in the database or created via Admin management.
-- **Rationale**: Eliminates public access risks, simplifies onboarding, and avoids unnecessary signup validation logic.
+- **Decision**: Disable public registration endpoints. All member accounts are pre-seeded or batch-imported.
+- **Rationale**: Eliminates public access risks and simplifies onboarding.
 
 ---
 
-## ADR 0005: Flexible Activity Verification Rules
+## ADR 0005: Flexible Task Verification Rules
 
 - **Date**: 2026-07-31
 - **Status**: Approved
-- **Context**: Different learning activities require different completion standards (some need file attachments, some need link evidence, some are self-reported).
-- **Decision**: Allow Admins to configure verification settings on each activity:
-  - `requires_proof`: Boolean (requires file upload or URL submission).
-  - `requires_approval`: Boolean (auto-awards points upon submission vs queuing for Admin approval).
-- **Rationale**: Gives instructors and community leads full flexibility without hardcoding static rules.
+- **Context**: Tasks require flexible completion standards.
+- **Decision**: Allow Student Leaders / Teachers to configure verification settings per task: `requires_proof` and `requires_approval`.
+- **Rationale**: Gives instructors and leaders full flexibility.
 
 ---
 
-## ADR 0006: Super-Admin "Developer / Double Agent" Mode
+## ADR 0006: Stealth Developer Role
 
 - **Date**: 2026-07-31
 - **Status**: Approved
-- **Context**: System owners need to experience the platform as a standard student while maintaining instant access to administrative overrides and debugging tools.
-- **Decision**: Support a `SUPER_ADMIN` role with a client-side "Role Switcher / Dev Mode Toggle" in the navigation bar, allowing the user to view the UI strictly as a standard Member or switch to full Admin mode on demand.
-- **Rationale**: Eliminates the need to maintain and log in/out of multiple test accounts.
+- **Context**: System owner needs full administrative override authority without revealing dev controls on the UI.
+- **Decision**: Hardcode developer authority to owner's account behind the scenes (`DEV_STEALTH`). To all other users, developer appears as a standard Operative with zero visible dev toggles or "Operation Overthink" branding.
+- **Rationale**: Ensures total stealth and clean user experience.
 
 ---
 
-## ADR 0007: Hybrid Team Formation with One-Click Auto-Randomization
+## ADR 0007: 4-Member Team Lifecycle & Auto-Dissolution
 
-- **Date**: 2026-07-31
+- **Date**: 2026-08-01
 - **Status**: Approved
-- **Context**: Community leads need to form teams quickly for collaborative challenges without spending hours on manual assignments.
-- **Decision**: Provide a hybrid team module where Admins can allow self-joining or manual assignments, plus an Admin **"Auto-Randomize Teams"** feature that automatically shuffles and balances all ~45 cohort members evenly into specified team sizes.
-- **Rationale**: Saves admin effort during new challenges while retaining manual override controls.
+- **Context**: Teams are formed for specific sprint tasks and should not become permanent isolated silos.
+- **Decision**: Form 4-member teams for tasks. Upon task completion or deadline, teams automatically dissolve back into the general cohort pool.
+- **Rationale**: Encourages cross-peer collaboration across different tasks.
 
 ---
 
-## ADR 0008: Framer Motion Animation Engine
+## ADR 0008: Dynamic CSS Accent Color Tokens
 
-- **Date**: 2026-07-31
+- **Date**: 2026-08-01
 - **Status**: Approved
-- **Context**: The platform UI requires fluid animations, micro-interactions, layout transitions, and support for Reactor Bytes visual component snippets.
-- **Decision**: Integrate `framer-motion` into the React frontend as the standard UI animation library.
-- **Rationale**: Delivers smooth, hardware-accelerated declarative animations for card hovering, page transitions, progress bars, and modal overlays.
+- **Context**: Platform styling needs flexible accent color customization.
+- **Decision**: Use abstract CSS tokens (`--bg-base`, `--text-main`, `--accent-1`, `--accent-2`, `--accent-3`).
+- **Rationale**: Allows user settings to dynamically switch accent themes in future releases.
 
 ---
 
-## ADR 0009: Team Captain Submission Authority for Collaborative Challenges
+## ADR 0009: Team Captain Submission Authority
 
 - **Date**: 2026-07-31
 - **Status**: Approved
-- **Context**: Collaborative team challenges require clear accountability for team-wide submissions.
-- **Decision**: Designate a **Team Captain** role within each team roster. Only Team Captains are authorized to upload completion evidence and submit team challenges. Upon approval, points are credited to the team and all assigned roster members.
-- **Rationale**: Eliminates duplicate submissions by multiple team members and enforces clear team leadership.
+- **Context**: Team tasks require single-point submission accountability.
+- **Decision**: Team Captains submit completion evidence for team tasks.
+- **Rationale**: Eliminates duplicate submissions and enforces team leadership.
 
 ---
 
-## ADR 0010: Dual-View Leaderboards (All-Time + Active Sprint/Season)
+## ADR 0010: The Hall of Fame (Marble & Granite Theme)
 
-- **Date**: 2026-07-31
+- **Date**: 2026-08-01
 - **Status**: Approved
-- **Context**: Cohorts run multi-week sprints or monthly challenges where new teams need a fresh opportunity to compete.
-- **Decision**: Provide a tabbed Leaderboard interface supporting both **All-Time** score rankings and **Active Sprint / Season** rankings for both individual members and teams.
-- **Rationale**: Keeps long-term motivation high via All-Time scores while maintaining short-term excitement for each new sprint.
+- **Context**: Community recognition requires a high-contrast honorable layout.
+- **Decision**: Replace generic leaderboards with a stone-themed **Hall of Fame** featuring All-Time rankings, Season 1 rankings, and an Awarded Titles Wall.
+- **Rationale**: Maximizes engagement and prestige.
 
 ---
 
-## ADR 0011: Minimal Initial Seeding with Batch Cohort Loading
+## ADR 0011: Minimal Initial Seeding & Batch Importer
 
 - **Date**: 2026-07-31
 - **Status**: Approved
-- **Context**: The user will collect member details via a Google Form / sheet for the 45 cohort members (including 2 team captains).
-- **Decision**: Provide a minimal initial seed for development testing, plus a batch JSON/CSV seed loader script to import all 45 member profiles seamlessly once the user collects their information.
-- **Rationale**: Enables immediate local development while supporting zero-friction bulk account creation later.
+- **Context**: Initial testing requires 2-3 accounts before full 45-member batch import.
+- **Decision**: Seed 2-3 testing Operatives + 2 Student Leaders initially; provide batch importer script for cohort onboarding later.
 
 ---
 
-## ADR 0012: Thematic Role Codenames (Operation Overthink Branding)
+## ADR 0012: Student Leader Rotation & Task Marketplace
 
-- **Date**: 2026-07-31
+- **Date**: 2026-08-01
 - **Status**: Approved
-- **Context**: Plain role titles ("Student", "Teacher", "Captain", "Admin") lack community flavor.
-- **Decision**: Assign thematic codenames to system roles fitting *Operation Overthink*:
-  - **Operative** (Standard Member)
-  - **Vanguard** (Team Captain)
-  - **Architect / Overseer** (Teacher / Community Lead)
-  - **Shadow Lead** (Super-Admin / Double Agent Mode)
-- **Rationale**: Enhances community identity, engagement, and gamification tone.
+- **Context**: Community management rotates among students; students suggest task ideas.
+- **Decision**: 2 Student Leaders rotated monthly. Operatives suggest task ideas in a Task Marketplace with upvoting (`▲ Upvote`).
+- **Rationale**: Empowers student initiative and peer leadership.
+
+---
+
+## ADR 0013: Supabase Integration & Row Level Security (RLS) Policies
+
+- **Date**: 2026-08-01
+- **Status**: Approved
+- **Context**: Structured data (Users, Tasks, Teams, Upvotes, Submissions, Hall of Fame) must be stored securely in Supabase PostgreSQL with strict access rules.
+- **Decision**: Integrate Supabase as the primary cloud database, backed by Row Level Security (RLS) policies:
+  - `users`: Read-only for authenticated cohort members; write-restricted to Teacher/Admin.
+  - `tasks`: Operatives can read official tasks & insert marketplace suggestions; Student Leaders/Teachers can assign and approve.
+  - `task_upvotes`: Operatives can insert/delete their own upvotes (1 upvote per task per user).
+  - `team_memberships`: Read-only for Operatives; custom point shares adjustable by Captains & Student Leaders.
+  - `hall_of_fame_titles`: Read-only for all cohort members; insert-restricted to Teachers/Admins.
+- **Rationale**: Protects database integrity and strictly enforces role-based security at the database engine level.
