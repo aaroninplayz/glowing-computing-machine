@@ -1,28 +1,42 @@
-# Project Glossary
+# Project Glossary & Domain Terminology
 
-This glossary defines key technical and product concepts used throughout the **Forge** codebase and documentation, explained in simple, beginner-friendly terms.
+This document defines all public and internal terms used across **Forge** to ensure total domain clarity.
 
 ---
 
-## Key Terms
+## Domain Terminology
 
-### Learning Community Operating System
-A web platform tailored to facilitate collaborative learning, team interactions, progress tracking, and shared challenges within a close-knit cohort, as opposed to a broadcast course platform.
+### 1. **Forge**
+- **Public Name**: Forge
+- **Internal Codename**: Operation Overthink
+- **Definition**: Web-based platform for a private learning community (~45 members) designed to organize learning activities, collaborative challenges, teams, resources, leaderboards, and progress tracking.
 
-### Learning Management System (LMS)
-A traditional software application focused on delivering pre-recorded courses, managing formal assignments, and tracking grade compliance. *Forge is explicitly NOT a generic LMS.*
+### 2. **Task (Team Task)**
+- **Definition**: A structured learning activity specifically assigned to a **Team**. Team Captains submit proof of completion on behalf of their 4-member squad.
 
-### MVP (Minimum Viable Product)
-The simplest possible working version of a software product that provides real value to users while allowing developers to validate core ideas with minimal complexity.
+### 3. **Challenge (Solo or Team Challenge)**
+- **Definition**: A learning activity designed for **Independent Individuals** or optional team participation. Members can choose to tackle a Challenge as a **Solo** operative or collaborate with peers as a **Team**.
 
-### Modular Architecture
-A software design strategy where code is divided into small, independent blocks (modules). Each module handles one specific domain feature (e.g., Teams, Leaderboards) so changes to one module do not break others.
+### 4. **Task Marketplace**
+- **Definition**: An open community board where Operatives suggest task/challenge ideas. Operatives upvote suggestions (`▲ Upvote`), and Student Leaders promote top-voted ideas to official assigned Tasks or Challenges.
 
-### Separation of Concerns
-The practice of splitting code based on what it does. For example, keeping the user interface code (HTML/CSS/rendering) separate from the business logic code (data calculation and database access).
+### 5. **Operative (Student)**
+- **Definition**: Standard student community member. Operatives participate in tasks, upvote marketplace ideas, join teams, and compete for Hall of Fame honors.
 
-### Single Source of Truth (SSOT)
-The practice of structuring documentation and code such that every piece of knowledge or requirement exists in exactly one place. In Forge, the `docs/` directory is the SSOT for all functional and technical rules.
+### 6. **Vanguard (Team Captain)**
+- **Definition**: A student designated as Team Captain for a 4-member squad. Serves as the primary submission interface for Team Tasks.
 
-### Pending Clarification
-A label used in documentation to explicitly flag areas where technical or product requirements have not yet been specified by the project owner.
+### 7. **Student Leader**
+- **Definition**: 2 students rotated monthly. Responsible for creating teams, assigning marketplace tasks/challenges, reviewing submissions, and awarding points.
+
+### 8. **Teacher (Instructor / Admin)**
+- **Definition**: Instructor/administrator with global authority over cohort management, student leader rotations, point overrides, and title awards.
+
+### 9. **Dev Stealth (Hidden Developer Role)**
+- **Definition**: System owner account (`u_dev`). Performs backend operations behind the scenes while appearing as a standard Operative on the UI (`public_role = 'OPERATIVE'`). Zero visible dev toggles or branding.
+
+### 10. **The Hall of Fame**
+- **Definition**: A high-contrast marble and granite themed honor layout displaying All-Time rankings, Season 1 rankings, and Awarded Titles (*Best Developer*, *Master UI Craftsperson*, *Top Squad*).
+
+### 11. **Team Lifecycle & Auto-Dissolution**
+- **Definition**: 4-member teams formed for specific tasks automatically dissolve back into the unassigned student pool upon task completion or deadline.

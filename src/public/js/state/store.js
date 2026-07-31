@@ -4,15 +4,8 @@ class Store {
   constructor() {
     this.state = {
       activeTab: 'dashboard',
-      currentUser: {
-        id: 'u_dev',
-        name: 'Aaron',
-        username: 'aaron_dev',
-        role: 'DEV_STEALTH',
-        public_role: 'OPERATIVE',
-        tag: 'Creator'
-      },
-      tasksData: { official: [], marketplace: [] },
+      currentUser: null,
+      tasksData: { teamTasks: [], challenges: [], marketplace: [] },
       teamsData: [],
       hallOfFameData: { allTime: [], season1: [], titles: [] }
     };

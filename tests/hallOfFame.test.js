@@ -37,7 +37,7 @@ describe('Hall of Fame Endpoints', () => {
   it('should award a new hall of fame title', async () => {
     const res = await supertest(app)
       .post('/api/hall-of-fame/award')
-      .send({ title_name: 'Test Champion', category: 'Coding', awarded_to_user_id: 'u_o1' });
+      .send({ title_name: 'Test Champion', category: 'Coding', awarded_to_user_id: null });
 
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);

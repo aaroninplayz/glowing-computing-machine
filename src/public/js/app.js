@@ -63,7 +63,7 @@ export async function loadAllData() {
     ]);
 
     store.setState({
-      tasksData: tasksRes || { official: [], marketplace: [] },
+      tasksData: tasksRes || { teamTasks: [], challenges: [], marketplace: [] },
       teamsData: teamsRes || [],
       hallOfFameData: hallRes || { allTime: [], season1: [], titles: [] }
     });

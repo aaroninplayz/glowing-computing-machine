@@ -12,7 +12,6 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize DB schema on start
 initSchema();
 
 const app = express();
@@ -21,640 +20,467 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Serve static frontend assets from src/public
 const publicDir = path.join(__dirname, '../public');
 app.use(express.static(publicDir));
 
-// File uploads directory setup
-const uploadsDir = path.join(__dirname, '../../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// ── File Uploads ──────────────────────────────────────────────────────────────
 
-// Secure Multer Storage: Filename sanitization against Path Traversal
+const uploadsDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.txt', '.zip', '.md', '.json', '.csv', '.doc', '.docx']);
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
     const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
     cb(null, `${Date.now()}-${safeName}`);
   }
 });
 
-// File Type Filter: Block executable or dangerous file uploads
-const fileFilter = (req, file, cb) => {
-  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.txt', '.zip', '.md', '.json', '.csv', '.doc', '.docx'];
+const fileFilter = (_req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
-  if (allowedExtensions.includes(ext)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Invalid file type. Executable or hazardous extensions are strictly forbidden.'));
-  }
+  cb(ALLOWED_EXTENSIONS.has(ext) ? null : new Error('Invalid file type.'), ALLOWED_EXTENSIONS.has(ext));
 };
 
-const upload = multer({ 
-  storage,
-  fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
-});
-
+const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 app.use('/uploads', express.static(uploadsDir));
 
-// --- COMPREHENSIVE SECURITY & IDOR PROTECTION MIDDLEWARE ---
+// ── Shared Helpers ────────────────────────────────────────────────────────────
 
-// 1. Session Authentication Middleware
-function authenticateUser(req, res, next) {
-  const userId = req.headers['x-user-id'] || (req.body && req.body.authenticated_user_id) || 'u_dev';
-  const user = db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE id = ? OR username = ?').get(userId, userId);
+const PRIVILEGED_ROLES = ['STUDENT_LEADER', 'TEACHER', 'DEV_STEALTH'];
+const ADMIN_ROLES = ['TEACHER', 'DEV_STEALTH'];
 
-  if (!user) {
-    const defaultUser = db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE role = "DEV_STEALTH"').get();
-    req.user = defaultUser || { id: 'u_dev', role: 'DEV_STEALTH', name: 'Aaron' };
-  } else {
-    req.user = user;
+/** Mask DEV_STEALTH to OPERATIVE in any user-facing payload */
+function maskRole(role) {
+  return role === 'DEV_STEALTH' ? 'OPERATIVE' : role;
+}
+
+/** Sanitize a user row for public API responses */
+function sanitizeUser(u) {
+  const publicRole = maskRole(u.role);
+  return { ...u, role: publicRole, public_role: publicRole };
+}
+
+/** Auto-dissolve a team (≥4 members) after task completion */
+function tryAutoDissolve(teamId) {
+  if (!teamId) return false;
+  const { cnt } = db.prepare('SELECT COUNT(*) as cnt FROM team_memberships WHERE team_id = ?').get(teamId);
+  if (cnt >= 4) {
+    db.prepare(`
+      UPDATE teams SET is_active = 0, status = 'DISSOLVED', dissolved_at = CURRENT_TIMESTAMP, dissolution_reason = 'TASK_COMPLETED'
+      WHERE id = ?
+    `).run(teamId);
+    return true;
   }
+  return false;
+}
+
+// ── Prepared Statements (avoid re-parsing on every request) ───────────────────
+
+const stmts = {
+  userByIdOrUsername: db.prepare('SELECT id, name, username, email, phone, role, tag FROM users WHERE id = ? OR username = ?'),
+  stealthUser: db.prepare("SELECT id, name, username, email, phone, role, tag FROM users WHERE role = 'DEV_STEALTH'"),
+  loginUser: db.prepare(`
+    SELECT id, name, username, email, phone, role, tag FROM users
+    WHERE (email = ? OR username = ? OR phone = ?) AND password_hash = ?
+  `),
+  allUsers: db.prepare('SELECT id, name, username, email, phone, role, tag, created_at FROM users'),
+  usersByRole: db.prepare('SELECT id, name, username, email, phone, role, tag, created_at FROM users WHERE role = ?'),
+  activeLeaders: db.prepare(`
+    SELECT slr.id, slr.user_id, u.name, u.username, slr.term_start, slr.term_end
+    FROM student_leader_rotations slr JOIN users u ON slr.user_id = u.id
+    WHERE slr.is_active = 1
+  `),
+  taskById: db.prepare('SELECT * FROM tasks WHERE id = ?'),
+  teamById: db.prepare('SELECT * FROM teams WHERE id = ?'),
+  membershipCheck: db.prepare('SELECT id FROM team_memberships WHERE team_id = ? AND user_id = ?'),
+  upvoteCount: db.prepare('SELECT COUNT(*) as upvotes FROM task_upvotes WHERE task_id = ?'),
+};
+
+// ── Leaderboard (single-pass SQL instead of N+1 loop) ─────────────────────────
+
+function getHallOfFameLeaderboard() {
+  // Team points: weighted share of completed team-task points
+  const teamPoints = db.prepare(`
+    SELECT tm.user_id,
+      SUM(t.total_points * (tm.custom_point_share / team_weight.total_weight)) as points
+    FROM team_memberships tm
+    JOIN tasks t ON tm.team_id = t.assigned_team_id AND t.status = 'COMPLETED'
+    JOIN (
+      SELECT team_id, SUM(custom_point_share) as total_weight
+      FROM team_memberships GROUP BY team_id
+    ) team_weight ON team_weight.team_id = tm.team_id
+    WHERE team_weight.total_weight > 0
+    GROUP BY tm.user_id
+  `).all();
+
+  // Individual points: completed tasks assigned directly to a user
+  const indivPoints = db.prepare(`
+    SELECT assigned_user_id as user_id, SUM(total_points) as points
+    FROM tasks WHERE assigned_user_id IS NOT NULL AND status = 'COMPLETED'
+    GROUP BY assigned_user_id
+  `).all();
+
+  // Build lookup maps
+  const pointMap = new Map();
+  for (const r of teamPoints) pointMap.set(r.user_id, (pointMap.get(r.user_id) || 0) + r.points);
+  for (const r of indivPoints) pointMap.set(r.user_id, (pointMap.get(r.user_id) || 0) + r.points);
+
+  // Fetch all non-stealth users and attach points
+  const users = db.prepare("SELECT id, name, username, tag, role FROM users WHERE role != 'DEV_STEALTH'").all();
+
+  return users
+    .map(u => ({
+      id: u.id,
+      name: u.name,
+      username: u.username,
+      tag: u.tag,
+      role: maskRole(u.role),
+      public_role: maskRole(u.role),
+      points: Math.round(pointMap.get(u.id) || 0)
+    }))
+    .sort((a, b) => b.points - a.points);
+}
+
+// ── Auth Middleware ────────────────────────────────────────────────────────────
+
+function authenticateUser(req, _res, next) {
+  const userId = req.headers['x-user-id'] || 'u_dev';
+  const user = stmts.userByIdOrUsername.get(userId, userId);
+  req.user = user || stmts.stealthUser.get() || { id: 'u_dev', role: 'DEV_STEALTH', name: 'Aaron' };
   next();
 }
 
-// 2. Strict Team & Resource Ownership Verification (IDOR Defense)
-function verifyTeamOwnershipOrPrivilege(teamIdParam = 'id') {
+function requireRole(allowedRoles) {
   return (req, res, next) => {
-    const user = req.user;
-    if (!user) return res.status(401).json({ error: 'Authentication required' });
-
-    // Teachers, Student Leaders, and Stealth Dev have global team management authority
-    if (['TEACHER', 'STUDENT_LEADER', 'DEV_STEALTH'].includes(user.role)) {
-      return next();
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: `Access denied: requires ${allowedRoles.filter(r => r !== 'DEV_STEALTH').join(' or ')} authority` });
     }
-
-    const teamId = req.params[teamIdParam] || req.body.team_id || req.body.id;
-    if (!teamId) return res.status(400).json({ error: 'Team ID required' });
-
-    const team = db.prepare('SELECT captain_id FROM teams WHERE id = ?').get(teamId);
-    if (!team) return res.status(404).json({ error: 'Team not found' });
-
-    // Check if user is either Team Captain or an assigned member of this specific team
-    const membership = db.prepare('SELECT id FROM team_memberships WHERE team_id = ? AND user_id = ?').get(teamId, user.id);
-    const isCaptain = team.captain_id === user.id;
-
-    if (!isCaptain && !membership) {
-      return res.status(403).json({ error: 'Forbidden: You do not belong to this team and cannot alter its resources or point shares.' });
-    }
-
     next();
   };
 }
 
-// 3. Require Student Leader / Teacher / Stealth Dev Role
-function requireLeaderOrTeacher(req, res, next) {
-  const user = req.user;
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
+const requireLeaderOrTeacher = requireRole(PRIVILEGED_ROLES);
+const requireTeacher = requireRole(ADMIN_ROLES);
 
-  const allowedRoles = ['STUDENT_LEADER', 'TEACHER', 'DEV_STEALTH'];
-  if (!allowedRoles.includes(user.role)) {
-    return res.status(403).json({ error: 'Access denied: Requires Student Leader or Teacher authority' });
-  }
-  next();
-}
+function verifyTeamAccess(teamIdParam = 'id') {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (PRIVILEGED_ROLES.includes(req.user.role)) return next();
 
-// 4. Require Teacher or Stealth Dev Role
-function requireTeacher(req, res, next) {
-  const user = req.user;
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const teamId = req.params[teamIdParam] || req.body.team_id;
+    if (!teamId) return res.status(400).json({ error: 'Team ID required' });
 
-  const allowedRoles = ['TEACHER', 'DEV_STEALTH'];
-  if (!allowedRoles.includes(user.role)) {
-    return res.status(403).json({ error: 'Access denied: Requires Teacher authority' });
-  }
-  next();
-}
+    const team = stmts.teamById.get(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
 
-// Helper: Calculate Hall of Fame Rankings
-function getHallOfFameLeaderboard() {
-  const users = db.prepare(`
-    SELECT id, name, username, email, phone, role, tag 
-    FROM users 
-    WHERE role != 'DEV_STEALTH'
-  `).all();
-
-  const leaderboard = users.map(user => {
-    const teamTasks = db.prepare(`
-      SELECT t.total_points, tm.custom_point_share, tm.team_id,
-        (SELECT SUM(sub_tm.custom_point_share) FROM team_memberships sub_tm WHERE sub_tm.team_id = tm.team_id) as total_team_weight
-      FROM team_memberships tm
-      JOIN tasks t ON tm.team_id = t.assigned_team_id
-      WHERE tm.user_id = ? AND t.status = 'COMPLETED'
-    `).all(user.id);
-
-    let teamPoints = 0;
-    for (const tt of teamTasks) {
-      if (tt.total_team_weight > 0) {
-        teamPoints += (tt.total_points * (tt.custom_point_share / tt.total_team_weight));
-      }
+    if (team.captain_id !== req.user.id && !stmts.membershipCheck.get(teamId, req.user.id)) {
+      return res.status(403).json({ error: 'Forbidden: you do not belong to this team.' });
     }
-
-    const indivTasks = db.prepare(`
-      SELECT SUM(total_points) as total
-      FROM tasks
-      WHERE assigned_user_id = ? AND status = 'COMPLETED'
-    `).get(user.id);
-
-    const indivPoints = (indivTasks && indivTasks.total) ? indivTasks.total : 0;
-    const totalPoints = Math.round(teamPoints + indivPoints);
-
-    return {
-      id: user.id,
-      name: user.name,
-      username: user.username,
-      tag: user.tag,
-      role: user.role === 'DEV_STEALTH' ? 'OPERATIVE' : user.role,
-      public_role: user.role === 'DEV_STEALTH' ? 'OPERATIVE' : user.role,
-      points: totalPoints
-    };
-  });
-
-  return leaderboard.sort((a, b) => b.points - a.points);
+    next();
+  };
 }
 
-// Global Auth Middleware Attachment
 app.use(authenticateUser);
 
-// --- REST API ENDPOINTS ---
+// ── Auth Endpoints ────────────────────────────────────────────────────────────
 
-// Authentication Endpoint
 app.post('/api/auth/login', (req, res) => {
   const { identifier, password } = req.body;
   if (!identifier || !password) return res.status(400).json({ error: 'Identifier and password required' });
 
-  const user = db.prepare(`
-    SELECT id, name, username, email, phone, role, tag 
-    FROM users 
-    WHERE (email = ? OR username = ? OR phone = ?) AND password_hash = ?
-  `).get(identifier, identifier, identifier, password);
-
+  const user = stmts.loginUser.get(identifier, identifier, identifier, password);
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-  const publicRole = user.role === 'DEV_STEALTH' ? 'OPERATIVE' : user.role;
-  res.json({ success: true, user: { ...user, public_role: publicRole } });
+  res.json({ success: true, user: sanitizeUser(user) });
 });
 
-// Current User Profile Endpoint (/api/auth/me)
 app.get('/api/auth/me', (req, res) => {
-  const user = req.user;
-  if (!user) return res.status(404).json({ error: 'User profile not found' });
-
-  const publicRole = user.role === 'DEV_STEALTH' ? 'OPERATIVE' : user.role;
-  res.json({ user: { ...user, public_role: publicRole } });
+  if (!req.user) return res.status(404).json({ error: 'User profile not found' });
+  res.json({ user: sanitizeUser(req.user) });
 });
 
-// User Management Endpoints
+// ── User Management ───────────────────────────────────────────────────────────
+
 app.get('/api/users', (req, res) => {
-  const { role } = req.query;
-  let users;
-  if (role) {
-    users = db.prepare('SELECT id, name, username, email, phone, role, tag, created_at FROM users WHERE role = ?').all(role);
-  } else {
-    users = db.prepare('SELECT id, name, username, email, phone, role, tag, created_at FROM users').all();
-  }
-
-  const sanitized = users.map(u => {
-    const maskedRole = u.role === 'DEV_STEALTH' ? 'OPERATIVE' : u.role;
-    return {
-      ...u,
-      role: maskedRole,
-      public_role: maskedRole
-    };
-  });
-  res.json(sanitized);
+  const users = req.query.role ? stmts.usersByRole.all(req.query.role) : stmts.allUsers.all();
+  res.json(users.map(sanitizeUser));
 });
 
-// Create User (Privilege Escalation Protected)
 app.post('/api/users', requireTeacher, (req, res) => {
   const { id, name, username, email, phone, password_hash, role, tag } = req.body;
   if (!name || !username || !email) return res.status(400).json({ error: 'Name, username, and email required' });
 
-  // Privilege Escalation Prevention: Prevent assigning DEV_STEALTH via user creation API
-  const requestedRole = (role === 'DEV_STEALTH') ? 'OPERATIVE' : (role || 'OPERATIVE');
-
+  // Block privilege escalation to DEV_STEALTH
+  const safeRole = (role === 'DEV_STEALTH') ? 'OPERATIVE' : (role || 'OPERATIVE');
   const userId = id || `u_${Date.now()}`;
-  db.prepare(`
-    INSERT INTO users (id, name, username, email, phone, password_hash, role, tag)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(userId, name, username, email, phone || null, password_hash || 'pass123', requestedRole, tag || null);
+
+  db.prepare('INSERT INTO users (id, name, username, email, phone, password_hash, role, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(userId, name, username, email, phone || null, password_hash || 'pass123', safeRole, tag || null);
 
   res.json({ success: true, userId });
 });
 
-// Student Leader Rotation Endpoints
-app.get('/api/student-leaders', (req, res) => {
-  const leaders = db.prepare(`
-    SELECT slr.id, slr.user_id, u.name, u.username, slr.term_start, slr.term_end
-    FROM student_leader_rotations slr
-    JOIN users u ON slr.user_id = u.id
-    WHERE slr.is_active = 1
-  `).all();
-  res.json(leaders);
-});
+// ── Student Leader Rotation ───────────────────────────────────────────────────
+
+app.get('/api/student-leaders', (_req, res) => res.json(stmts.activeLeaders.all()));
 
 app.post('/api/student-leaders/rotate', requireTeacher, (req, res) => {
   const { leader_ids } = req.body;
-  if (!Array.isArray(leader_ids) || leader_ids.length === 0) {
+  if (!Array.isArray(leader_ids) || !leader_ids.length) {
     return res.status(400).json({ error: 'leader_ids array required' });
   }
 
-  db.prepare('UPDATE student_leader_rotations SET is_active = 0 WHERE is_active = 1').run();
-
-  const termStart = new Date().toISOString();
-  const termEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-  const insertStmt = db.prepare(`
-    INSERT INTO student_leader_rotations (id, user_id, term_start, term_end, is_active)
-    VALUES (?, ?, ?, ?, 1)
-  `);
-  const updateRoleStmt = db.prepare(`UPDATE users SET role = 'STUDENT_LEADER' WHERE id = ?`);
-
-  leader_ids.forEach((uid, idx) => {
-    insertStmt.run(`slr_${Date.now()}_${idx}`, uid, termStart, termEnd);
-    updateRoleStmt.run(uid);
+  const rotate = db.transaction(() => {
+    db.prepare('UPDATE student_leader_rotations SET is_active = 0 WHERE is_active = 1').run();
+    const termStart = new Date().toISOString();
+    const termEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const insertStmt = db.prepare('INSERT INTO student_leader_rotations (id, user_id, term_start, term_end, is_active) VALUES (?, ?, ?, ?, 1)');
+    const updateRole = db.prepare("UPDATE users SET role = 'STUDENT_LEADER' WHERE id = ?");
+    leader_ids.forEach((uid, i) => {
+      insertStmt.run(`slr_${Date.now()}_${i}`, uid, termStart, termEnd);
+      updateRole.run(uid);
+    });
   });
+  rotate();
 
-  const activeLeaders = db.prepare(`
-    SELECT slr.id, slr.user_id, u.name, u.username, slr.term_start, slr.term_end
-    FROM student_leader_rotations slr
-    JOIN users u ON slr.user_id = u.id
-    WHERE slr.is_active = 1
-  `).all();
-
-  res.json({ success: true, active_leaders: activeLeaders });
+  res.json({ success: true, active_leaders: stmts.activeLeaders.all() });
 });
 
-// Tasks & Task Marketplace Endpoints
-app.get('/api/tasks', (req, res) => {
-  const official = db.prepare(`
+// ── Tasks & Challenges ────────────────────────────────────────────────────────
+
+app.get('/api/tasks', (_req, res) => {
+  const teamTasks = db.prepare(`
     SELECT t.*, tm.name as assigned_team_name, u.name as assigned_user_name
-    FROM tasks t
-    LEFT JOIN teams tm ON t.assigned_team_id = tm.id
-    LEFT JOIN users u ON t.assigned_user_id = u.id
-    WHERE t.is_marketplace = 0
-    ORDER BY t.created_at DESC
+    FROM tasks t LEFT JOIN teams tm ON t.assigned_team_id = tm.id LEFT JOIN users u ON t.assigned_user_id = u.id
+    WHERE t.is_marketplace = 0 AND t.task_type = 'TEAM_TASK' ORDER BY t.created_at DESC
+  `).all();
+
+  const challenges = db.prepare(`
+    SELECT t.*, tm.name as assigned_team_name, u.name as assigned_user_name
+    FROM tasks t LEFT JOIN teams tm ON t.assigned_team_id = tm.id LEFT JOIN users u ON t.assigned_user_id = u.id
+    WHERE t.is_marketplace = 0 AND t.task_type = 'CHALLENGE' ORDER BY t.created_at DESC
   `).all();
 
   const marketplace = db.prepare(`
     SELECT t.*, (SELECT COUNT(*) FROM task_upvotes tu WHERE tu.task_id = t.id) as upvotes
-    FROM tasks t
-    WHERE t.is_marketplace = 1
-    ORDER BY upvotes DESC
+    FROM tasks t WHERE t.is_marketplace = 1 ORDER BY upvotes DESC
   `).all();
 
-  res.json({ official, marketplace });
+  res.json({ teamTasks, challenges, marketplace });
 });
 
-// Suggest a Task (Task Marketplace)
 app.post('/api/tasks/suggest', (req, res) => {
-  const { title, description, total_points } = req.body;
+  const { title, description, total_points, task_type, mode } = req.body;
   if (!title || !description) return res.status(400).json({ error: 'Title and description required' });
 
   const taskId = `market_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-  db.prepare(`
-    INSERT INTO tasks (id, title, description, total_points, is_marketplace, status)
-    VALUES (?, ?, ?, ?, 1, 'MARKETPLACE')
-  `).run(taskId, title, description, total_points || 20);
+  db.prepare(`INSERT INTO tasks (id, title, description, total_points, task_type, mode, is_marketplace, status) VALUES (?, ?, ?, ?, ?, ?, 1, 'MARKETPLACE')`)
+    .run(taskId, title, description, total_points || 20, task_type || 'CHALLENGE', mode || 'CHOICE');
 
-  const suggestorId = req.user.id;
-  db.prepare('INSERT OR IGNORE INTO task_upvotes (task_id, user_id) VALUES (?, ?)').run(taskId, suggestorId);
-
+  db.prepare('INSERT OR IGNORE INTO task_upvotes (task_id, user_id) VALUES (?, ?)').run(taskId, req.user.id);
   res.json({ success: true, taskId });
 });
 
-// Upvote Task Marketplace Idea
 app.post('/api/tasks/:id/upvote', (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.id;
+  const task = stmts.taskById.get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
 
-  try {
-    const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-
-    db.prepare('INSERT OR IGNORE INTO task_upvotes (task_id, user_id) VALUES (?, ?)').run(id, userId);
-
-    const countRow = db.prepare('SELECT COUNT(*) as upvotes FROM task_upvotes WHERE task_id = ?').get(id);
-    res.json({ success: true, upvotes: countRow ? countRow.upvotes : 0 });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  db.prepare('INSERT OR IGNORE INTO task_upvotes (task_id, user_id) VALUES (?, ?)').run(req.params.id, req.user.id);
+  res.json({ success: true, upvotes: stmts.upvoteCount.get(req.params.id).upvotes });
 });
 
-// Remove Upvote
 app.delete('/api/tasks/:id/upvote', (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.id;
+  const task = stmts.taskById.get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
 
-  try {
-    const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-
-    db.prepare('DELETE FROM task_upvotes WHERE task_id = ? AND user_id = ?').run(id, userId);
-
-    const countRow = db.prepare('SELECT COUNT(*) as upvotes FROM task_upvotes WHERE task_id = ?').get(id);
-    res.json({ success: true, upvotes: countRow ? countRow.upvotes : 0 });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  db.prepare('DELETE FROM task_upvotes WHERE task_id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.json({ success: true, upvotes: stmts.upvoteCount.get(req.params.id).upvotes });
 });
 
-// Assign Marketplace Task to Team or Individual (RBAC Enforced)
 app.post('/api/tasks/:id/assign', requireLeaderOrTeacher, (req, res) => {
-  const { id } = req.params;
-  const { team_id, user_id } = req.body;
+  const { team_id, user_id, task_type } = req.body;
+  const task = stmts.taskById.get(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
 
   if (team_id) {
-    const team = db.prepare('SELECT id FROM teams WHERE id = ?').get(team_id);
+    const team = stmts.teamById.get(team_id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+    db.prepare('UPDATE teams SET task_id = ? WHERE id = ?').run(req.params.id, team_id);
   }
+
+  const resolvedType = task_type || (team_id ? 'TEAM_TASK' : task.task_type);
 
   db.prepare(`
-    UPDATE tasks 
-    SET is_marketplace = 0, assigned_team_id = ?, assigned_user_id = ?, assigned_by = ?, status = 'IN_PROGRESS' 
+    UPDATE tasks SET is_marketplace = 0, assigned_team_id = ?, assigned_user_id = ?, assigned_by = ?, task_type = ?, status = 'IN_PROGRESS'
     WHERE id = ?
-  `).run(team_id || null, user_id || null, req.user.id, id);
-
-  if (team_id) {
-    db.prepare('UPDATE teams SET task_id = ? WHERE id = ?').run(id, team_id);
-  }
+  `).run(team_id || null, user_id || null, req.user.id, resolvedType, req.params.id);
 
   res.json({ success: true });
 });
 
-// Submit Task Proof (IDOR & Assignment Verification Protected)
 app.post('/api/tasks/:id/submit', upload.single('proof_file'), (req, res) => {
-  const { id } = req.params;
-  const { proof_notes } = req.body;
-  const user = req.user;
-
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  const task = stmts.taskById.get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
 
-  // IDOR & Assignment Protection: User must be assigned to task, belong to assigned team, or have leader/teacher role
-  if (!['TEACHER', 'STUDENT_LEADER', 'DEV_STEALTH'].includes(user.role)) {
-    if (task.assigned_user_id && task.assigned_user_id !== user.id) {
-      return res.status(403).json({ error: 'Forbidden: You are not assigned to this individual task.' });
+  // IDOR: verify submitter is assigned or on the team
+  if (!PRIVILEGED_ROLES.includes(req.user.role)) {
+    if (task.assigned_user_id && task.assigned_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden: you are not assigned to this task.' });
     }
-    if (task.assigned_team_id) {
-      const membership = db.prepare('SELECT id FROM team_memberships WHERE team_id = ? AND user_id = ?').get(task.assigned_team_id, user.id);
-      if (!membership) {
-        return res.status(403).json({ error: 'Forbidden: You are not a member of the team assigned to this task.' });
-      }
+    if (task.assigned_team_id && !stmts.membershipCheck.get(task.assigned_team_id, req.user.id)) {
+      return res.status(403).json({ error: 'Forbidden: you are not a member of the assigned team.' });
     }
   }
 
   const proofUrl = req.file ? `/uploads/${req.file.filename}` : null;
   const subId = `sub_${Date.now()}`;
-
-  db.prepare(`
-    INSERT INTO task_submissions (id, task_id, submitted_by, proof_url, proof_notes, status)
-    VALUES (?, ?, ?, ?, ?, 'PENDING')
-  `).run(subId, id, user.id, proofUrl, proof_notes || '');
-
-  db.prepare("UPDATE tasks SET status = 'PENDING_APPROVAL' WHERE id = ?").run(id);
+  db.prepare("INSERT INTO task_submissions (id, task_id, submitted_by, proof_url, proof_notes, status) VALUES (?, ?, ?, ?, ?, 'PENDING')")
+    .run(subId, req.params.id, req.user.id, proofUrl, req.body.proof_notes || '');
+  db.prepare("UPDATE tasks SET status = 'PENDING_APPROVAL' WHERE id = ?").run(req.params.id);
 
   res.json({ success: true, submissionId: subId });
 });
 
-// Complete & Approve Task (RBAC Enforced: Leader or Teacher)
-app.post('/api/tasks/:id/approve', requireLeaderOrTeacher, (req, res) => {
-  const { id } = req.params;
-  const { submission_id } = req.body;
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+function completeTask(req, res) {
+  const task = stmts.taskById.get(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
 
-  db.prepare("UPDATE tasks SET status = 'COMPLETED' WHERE id = ?").run(id);
+  db.prepare("UPDATE tasks SET status = 'COMPLETED' WHERE id = ?").run(req.params.id);
 
-  if (submission_id) {
-    db.prepare(`
-      UPDATE task_submissions 
-      SET status = 'APPROVED', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP 
-      WHERE id = ?
-    `).run(req.user.id, submission_id);
+  if (req.body.submission_id) {
+    db.prepare("UPDATE task_submissions SET status = 'APPROVED', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(req.user.id, req.body.submission_id);
   }
 
-  let dissolved = false;
-  if (task.assigned_team_id) {
-    const memberCount = db.prepare('SELECT COUNT(*) as cnt FROM team_memberships WHERE team_id = ?').get(task.assigned_team_id).cnt;
-    if (memberCount >= 4) {
-      db.prepare(`
-        UPDATE teams 
-        SET is_active = 0, status = 'DISSOLVED', dissolved_at = CURRENT_TIMESTAMP, dissolution_reason = 'TASK_COMPLETED' 
-        WHERE id = ?
-      `).run(task.assigned_team_id);
-      dissolved = true;
-    }
-  }
+  const dissolved = tryAutoDissolve(task.assigned_team_id);
+  res.json({ success: true, taskId: req.params.id, status: 'COMPLETED', team_dissolved: dissolved });
+}
 
-  res.json({ success: true, taskId: id, status: 'COMPLETED', team_dissolved: dissolved });
-});
+app.post('/api/tasks/:id/approve', requireLeaderOrTeacher, completeTask);
+app.post('/api/tasks/:id/complete', requireLeaderOrTeacher, completeTask);
 
-// Complete Task Alias (RBAC Enforced)
-app.post('/api/tasks/:id/complete', requireLeaderOrTeacher, (req, res) => {
-  const { id } = req.params;
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
-  if (!task) return res.status(404).json({ error: 'Task not found' });
+// ── Teams ─────────────────────────────────────────────────────────────────────
 
-  db.prepare("UPDATE tasks SET status = 'COMPLETED' WHERE id = ?").run(id);
-
-  let dissolved = false;
-  if (task.assigned_team_id) {
-    const memberCount = db.prepare('SELECT COUNT(*) as cnt FROM team_memberships WHERE team_id = ?').get(task.assigned_team_id).cnt;
-    if (memberCount >= 4) {
-      db.prepare(`
-        UPDATE teams 
-        SET is_active = 0, status = 'DISSOLVED', dissolved_at = CURRENT_TIMESTAMP, dissolution_reason = 'TASK_COMPLETED' 
-        WHERE id = ?
-      `).run(task.assigned_team_id);
-      dissolved = true;
-    }
-  }
-
-  res.json({ success: true, taskId: id, status: 'COMPLETED', auto_dissolved: dissolved });
-});
-
-// Teams & Dynamic Point Share Endpoints
-app.get('/api/teams', (req, res) => {
+app.get('/api/teams', (_req, res) => {
   const teams = db.prepare(`
-    SELECT t.*, u.name as captain_name, tk.title as task_title 
-    FROM teams t 
-    LEFT JOIN users u ON t.captain_id = u.id 
-    LEFT JOIN tasks tk ON t.task_id = tk.id
+    SELECT t.*, u.name as captain_name, tk.title as task_title
+    FROM teams t LEFT JOIN users u ON t.captain_id = u.id LEFT JOIN tasks tk ON t.task_id = tk.id
     WHERE t.is_active = 1
   `).all();
 
-  const teamsWithMembers = teams.map(team => {
-    const members = db.prepare(`
-      SELECT u.id, u.name, u.username, u.role, u.tag, tm.custom_point_share 
-      FROM team_memberships tm 
-      JOIN users u ON tm.user_id = u.id 
-      WHERE tm.team_id = ?
-    `).all(team.id);
+  const getMembersStmt = db.prepare(`
+    SELECT u.id, u.name, u.username, u.role, u.tag, tm.custom_point_share
+    FROM team_memberships tm JOIN users u ON tm.user_id = u.id WHERE tm.team_id = ?
+  `);
 
-    const sanitizedMembers = members.map(m => {
-      const maskedRole = m.role === 'DEV_STEALTH' ? 'OPERATIVE' : m.role;
-      return {
-        ...m,
-        role: maskedRole,
-        public_role: maskedRole
-      };
-    });
+  const result = teams.map(team => ({
+    ...team,
+    members: getMembersStmt.all(team.id).map(sanitizeUser)
+  }));
 
-    return { ...team, members: sanitizedMembers };
-  });
-
-  res.json(teamsWithMembers);
+  res.json(result);
 });
 
-// Create New Team (RBAC Enforced)
-app.post('/api/teams', requireLeaderOrTeacher, (req, res) => {
+function createTeam(req, res) {
   const { name, captain_id, member_ids, task_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Team name required' });
 
   const teamId = `t_${Date.now()}`;
-  db.prepare("INSERT INTO teams (id, name, captain_id, task_id, is_active, status) VALUES (?, ?, ?, ?, 1, 'ACTIVE')").run(teamId, name, captain_id || null, task_id || null);
+  db.prepare("INSERT INTO teams (id, name, captain_id, task_id, is_active, status) VALUES (?, ?, ?, ?, 1, 'ACTIVE')")
+    .run(teamId, name, captain_id || null, task_id || null);
 
   if (Array.isArray(member_ids)) {
-    const insertMember = db.prepare('INSERT INTO team_memberships (id, user_id, team_id, custom_point_share) VALUES (?, ?, ?, 1.0)');
-    member_ids.forEach((uid, idx) => {
-      insertMember.run(`tm_${Date.now()}_${idx}`, uid, teamId);
-    });
+    const ins = db.prepare('INSERT INTO team_memberships (id, user_id, team_id, custom_point_share) VALUES (?, ?, ?, 1.0)');
+    member_ids.forEach((uid, i) => ins.run(`tm_${Date.now()}_${i}`, uid, teamId));
   }
 
   res.json({ success: true, teamId });
-});
+}
 
-app.post('/api/teams/create', requireLeaderOrTeacher, (req, res) => {
-  const { name, captain_id, member_ids, task_id } = req.body;
-  if (!name) return res.status(400).json({ error: 'Team name required' });
+app.post('/api/teams', requireLeaderOrTeacher, createTeam);
+app.post('/api/teams/create', requireLeaderOrTeacher, createTeam);
 
-  const teamId = `t_${Date.now()}`;
-  db.prepare("INSERT INTO teams (id, name, captain_id, task_id, is_active, status) VALUES (?, ?, ?, ?, 1, 'ACTIVE')").run(teamId, name, captain_id || null, task_id || null);
-
-  if (Array.isArray(member_ids)) {
-    const insertMember = db.prepare('INSERT INTO team_memberships (id, user_id, team_id, custom_point_share) VALUES (?, ?, ?, 1.0)');
-    member_ids.forEach((uid, idx) => {
-      insertMember.run(`tm_${Date.now()}_${idx}`, uid, teamId);
-    });
-  }
-
-  res.json({ success: true, teamId });
-});
-
-// Point Override for Team Member (IDOR & Team Membership Protected)
-app.post('/api/teams/:id/points/override', verifyTeamOwnershipOrPrivilege('id'), (req, res) => {
-  const { id } = req.params;
+app.post('/api/teams/:id/points/override', verifyTeamAccess('id'), (req, res) => {
   const { user_id, custom_point_share } = req.body;
-
-  if (typeof custom_point_share !== 'number' || isNaN(custom_point_share) || custom_point_share < 0 || !isFinite(custom_point_share)) {
+  if (typeof custom_point_share !== 'number' || !isFinite(custom_point_share) || custom_point_share < 0) {
     return res.status(400).json({ error: 'Invalid custom point share' });
   }
 
-  const team = db.prepare('SELECT id FROM teams WHERE id = ?').get(id);
+  const team = stmts.teamById.get(req.params.id);
   if (!team) return res.status(404).json({ error: 'Team not found' });
 
-  db.prepare(`
-    UPDATE team_memberships 
-    SET custom_point_share = ? 
-    WHERE team_id = ? AND user_id = ?
-  `).run(custom_point_share, id, user_id);
-
+  db.prepare('UPDATE team_memberships SET custom_point_share = ? WHERE team_id = ? AND user_id = ?')
+    .run(custom_point_share, req.params.id, user_id);
   res.json({ success: true });
 });
 
-app.post('/api/teams/redistribute-points', verifyTeamOwnershipOrPrivilege('team_id'), (req, res) => {
+app.post('/api/teams/redistribute-points', verifyTeamAccess('team_id'), (req, res) => {
   const { team_id, user_id, custom_point_share } = req.body;
-  if (!team_id || !user_id || typeof custom_point_share !== 'number' || isNaN(custom_point_share) || custom_point_share < 0 || !isFinite(custom_point_share)) {
+  if (!team_id || !user_id || typeof custom_point_share !== 'number' || !isFinite(custom_point_share) || custom_point_share < 0) {
     return res.status(400).json({ error: 'Team ID, User ID, and valid custom_point_share required' });
   }
 
-  const team = db.prepare('SELECT id FROM teams WHERE id = ?').get(team_id);
-  if (!team) return res.status(404).json({ error: 'Team not found' });
+  if (!stmts.teamById.get(team_id)) return res.status(404).json({ error: 'Team not found' });
 
-  db.prepare(`
-    UPDATE team_memberships 
-    SET custom_point_share = ? 
-    WHERE team_id = ? AND user_id = ?
-  `).run(custom_point_share, team_id, user_id);
-
+  db.prepare('UPDATE team_memberships SET custom_point_share = ? WHERE team_id = ? AND user_id = ?')
+    .run(custom_point_share, team_id, user_id);
   res.json({ success: true });
 });
 
-// Dissolve Team (RBAC Enforced)
 app.post('/api/teams/:id/dissolve', requireLeaderOrTeacher, (req, res) => {
-  const { id } = req.params;
-  const { reason } = req.body || {};
-
   db.prepare(`
-    UPDATE teams 
-    SET is_active = 0, status = 'DISSOLVED', dissolved_at = CURRENT_TIMESTAMP, dissolution_reason = ? 
+    UPDATE teams SET is_active = 0, status = 'DISSOLVED', dissolved_at = CURRENT_TIMESTAMP, dissolution_reason = ?
     WHERE id = ?
-  `).run(reason || 'MANUAL', id);
-
-  res.json({ success: true, teamId: id, is_active: 0 });
+  `).run(req.body.reason || 'MANUAL', req.params.id);
+  res.json({ success: true, teamId: req.params.id, is_active: 0 });
 });
 
-// The Hall of Fame Endpoints
-app.get('/api/hall-of-fame', (req, res) => {
-  const allTime = getHallOfFameLeaderboard();
-  const season1 = getHallOfFameLeaderboard();
+// ── Hall of Fame ──────────────────────────────────────────────────────────────
 
+app.get('/api/hall-of-fame', (_req, res) => {
+  const leaderboard = getHallOfFameLeaderboard();
   const titles = db.prepare(`
-    SELECT h.*, u.name as user_name, tm.name as team_name 
-    FROM hall_of_fame_titles h 
-    LEFT JOIN users u ON h.awarded_to_user_id = u.id 
-    LEFT JOIN teams tm ON h.awarded_to_team_id = tm.id 
+    SELECT h.*, u.name as user_name, tm.name as team_name
+    FROM hall_of_fame_titles h LEFT JOIN users u ON h.awarded_to_user_id = u.id LEFT JOIN teams tm ON h.awarded_to_team_id = tm.id
     ORDER BY h.awarded_at DESC
   `).all();
-
-  res.json({ allTime, season1, titles });
+  res.json({ allTime: leaderboard, season1: leaderboard, titles });
 });
 
-// Award New Hall of Fame Title (RBAC Enforced)
-app.post('/api/hall-of-fame/award', requireLeaderOrTeacher, (req, res) => {
+function awardTitle(req, res) {
   const { title_name, category, awarded_to_user_id, awarded_to_team_id, season } = req.body;
   if (!title_name) return res.status(400).json({ error: 'Title name required' });
 
   const titleId = `hof_${Date.now()}`;
-  db.prepare(`
-    INSERT INTO hall_of_fame_titles (id, title_name, category, awarded_to_user_id, awarded_to_team_id, season)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(titleId, title_name, category || 'Academics', awarded_to_user_id || null, awarded_to_team_id || null, season || 'Season 1');
-
+  db.prepare('INSERT INTO hall_of_fame_titles (id, title_name, category, awarded_to_user_id, awarded_to_team_id, season) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(titleId, title_name, category || 'Academics', awarded_to_user_id || null, awarded_to_team_id || null, season || 'Season 1');
   res.json({ success: true, titleId });
-});
+}
 
-app.post('/api/hall-of-fame/titles', requireLeaderOrTeacher, (req, res) => {
-  const { title_name, category, awarded_to_user_id, awarded_to_team_id, season } = req.body;
-  if (!title_name) return res.status(400).json({ error: 'Title name required' });
+app.post('/api/hall-of-fame/award', requireLeaderOrTeacher, awardTitle);
+app.post('/api/hall-of-fame/titles', requireLeaderOrTeacher, awardTitle);
 
-  const titleId = `hof_${Date.now()}`;
-  db.prepare(`
-    INSERT INTO hall_of_fame_titles (id, title_name, category, awarded_to_user_id, awarded_to_team_id, season)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(titleId, title_name, category || 'Academics', awarded_to_user_id || null, awarded_to_team_id || null, season || 'Season 1');
+// ── Error Handling & SPA Fallback ─────────────────────────────────────────────
 
-  res.json({ success: true, titleId });
-});
-
-// Error handling middleware for multer / file upload errors
-app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError || err.message.includes('Invalid file type')) {
+app.use((err, _req, res, _next) => {
+  if (err instanceof multer.MulterError || (err.message && err.message.includes('Invalid file type'))) {
     return res.status(400).json({ error: err.message });
   }
-  next(err);
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-// Serve frontend for all unmatched routes
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
     return res.status(404).json({ error: 'Resource not found' });
   }
   res.sendFile(path.join(publicDir, 'index.html'));
 });
+
+// ── Server Lifecycle ──────────────────────────────────────────────────────────
 
 let serverInstance = null;
 export function startServer(port = PORT) {
@@ -667,9 +493,7 @@ export function startServer(port = PORT) {
 }
 
 export function stopServer() {
-  if (serverInstance) {
-    serverInstance.close();
-  }
+  if (serverInstance) serverInstance.close();
 }
 
 if (process.env.NODE_ENV !== 'test' && import.meta.url === `file://${process.argv[1]}`) {

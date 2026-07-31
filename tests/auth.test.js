@@ -10,6 +10,11 @@ describe('Auth & User Role Endpoints', () => {
 
   before(() => {
     initSchema();
+    // Ensure test user exists with the password this test will use
+    db.prepare("DELETE FROM users WHERE id = 'u_dev'").run();
+    db.prepare("INSERT OR REPLACE INTO users (id, name, username, email, phone, password_hash, role, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run('u_dev', 'Aaron', 'aaron_dev', 'aaron@forge.local', '9990001111', 'pass123', 'DEV_STEALTH', 'Creator');
+
     app = express();
     app.use(cors());
     app.use(express.json());
