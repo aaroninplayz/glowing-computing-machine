@@ -1,65 +1,84 @@
 // Main ES Module Entry Point
 import { store } from './state/store.js';
-import { initTheme, toggleTheme } from './services/theme.js';
 import { fetchCurrentUser, fetchTasks, fetchTeams, fetchHallOfFame } from './services/api.js';
 
-import { renderDashboard } from './views/dashboardView.js';
+import { renderDashboard, attachDashboardEvents } from './views/dashboardView.js';
 import { renderTasksView, attachTasksEvents } from './views/tasksView.js';
 import { renderTeamsView, attachTeamsEvents } from './views/teamsView.js';
-import { renderHallOfFameView, attachHallOfFameEvents } from './views/hallOfFameView.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-  initTheme();
-  initThemeToggle();
   initNav();
-  initAuth();
+  initUserSelector();
 
   store.subscribe((state) => {
     renderAppView(state);
+    updateHeaderUserBadge(state.currentUser);
   });
 
   loadAllData();
 });
 
-function initThemeToggle() {
-  const toggleBtn = document.getElementById('themeToggle');
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => {
-      toggleTheme();
-    });
-  }
-}
-
 function initNav() {
   const tabs = document.querySelectorAll('.nav-tab');
   tabs.forEach(tab => {
     tab.addEventListener('click', (e) => {
-      tabs.forEach(t => t.classList.remove('active'));
+      tabs.forEach(t => {
+        t.classList.remove('text-royal-slate-blue', 'border-b-2', 'border-royal-slate-blue', 'pb-1');
+        t.classList.add('text-outline');
+      });
+
       const target = e.currentTarget;
-      target.classList.add('active');
+      target.classList.remove('text-outline');
+      target.classList.add('text-royal-slate-blue', 'border-b-2', 'border-royal-slate-blue', 'pb-1');
+
       const activeTab = target.getAttribute('data-tab');
       store.setState({ activeTab });
     });
   });
 }
 
-async function initAuth() {
-  try {
-    const userRes = await fetchCurrentUser();
+function initUserSelector() {
+  const selector = document.getElementById('userSelector');
+  if (selector) {
+    selector.addEventListener('change', async (e) => {
+      const selectedUserId = e.target.value;
+      try {
+        const userRes = await fetchCurrentUser(selectedUserId);
+        if (userRes && userRes.user) {
+          store.setState({ currentUser: userRes.user });
+          loadAllData();
+        }
+      } catch (err) {
+        console.error('Failed to switch user context:', err);
+      }
+    });
+  }
+
+  // Load initial user
+  fetchCurrentUser('u_dev').then(userRes => {
     if (userRes && userRes.user) {
       store.setState({ currentUser: userRes.user });
     }
-  } catch (err) {
-    console.error('Failed to load current user context:', err);
+  }).catch(console.error);
+}
+
+function updateHeaderUserBadge(user) {
+  if (!user) return;
+  const userTagBadge = document.getElementById('userTagBadge');
+  if (userTagBadge) {
+    userTagBadge.textContent = `${user.name} (${user.tag || user.public_role || user.role})`;
   }
 }
 
 export async function loadAllData() {
   try {
+    const currentUser = store.getState().currentUser;
+    const userId = currentUser ? currentUser.id : 'u_dev';
+
     const [tasksRes, teamsRes, hallRes] = await Promise.all([
-      fetchTasks(),
-      fetchTeams(),
-      fetchHallOfFame()
+      fetchTasks(userId),
+      fetchTeams(userId),
+      fetchHallOfFame(userId)
     ]);
 
     store.setState({
@@ -80,14 +99,12 @@ function renderAppView(state) {
 
   if (activeTab === 'dashboard') {
     appView.innerHTML = renderDashboard(state);
+    attachDashboardEvents(state, loadAllData);
   } else if (activeTab === 'tasks') {
     appView.innerHTML = renderTasksView(state);
     attachTasksEvents(state, loadAllData);
   } else if (activeTab === 'teams') {
     appView.innerHTML = renderTeamsView(state);
     attachTeamsEvents(state, loadAllData);
-  } else if (activeTab === 'hall-of-fame') {
-    appView.innerHTML = renderHallOfFameView(state);
-    attachHallOfFameEvents(state, loadAllData);
   }
 }

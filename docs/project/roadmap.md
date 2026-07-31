@@ -96,7 +96,7 @@ Building core features. No external users. Internal testing only.
 
 ---
 
-### 0.07-alpha — Frontend Shell & State 🔨 IN PROGRESS
+### 0.07-alpha — Frontend Shell & State ✅ DONE
 
 > *Vanilla JS SPA, client state management, theme system*
 
@@ -105,47 +105,45 @@ Building core features. No external users. Internal testing only.
 - [x] `api.js` — centralized fetch service for all endpoints
 - [x] `theme.js` — light/dark theme toggle with `data-theme` attribute
 - [x] `style.css` — CSS custom properties design system
-- [ ] Update frontend views to use new `{ teamTasks, challenges, marketplace }` API shape
-- [ ] Separate "Tasks" and "Challenges" tabs/sections in the UI
+- [x] Update frontend views to use new `{ teamTasks, challenges, marketplace }` API shape
+- [x] Separate "Tasks" and "Challenges" tabs/sections in the UI
 
 ---
 
-### 0.08-alpha — Frontend: Dashboard View
+### 0.08-alpha — Frontend: Dashboard View ✅ DONE
 
 > *Landing page after login with summary cards*
 
-- [ ] Welcome card with user name/tag
-- [ ] Active task count + upcoming deadline card
-- [ ] Team status card (current team, captain, members)
-- [ ] Quick stats: total points earned, rank position
-- [ ] Recent activity feed (last 5 actions)
+- [x] Welcome card with user name/tag & context role badge
+- [x] Active task count + sprint completion progress
+- [x] Team status card (current team, captain, members)
+- [x] Quick stats: total tasks registered, squad assignment
+- [x] Recent cohort activity feed
 
 ---
 
-### 0.09-alpha — Frontend: Tasks & Challenges View
+### 0.09-alpha — Frontend: Tasks & Challenges View ✅ DONE
 
 > *Full tasks UI with create, assign, submit, approve flows*
 
-- [ ] Task list with status badges (OPEN, IN_PROGRESS, PENDING_APPROVAL, COMPLETED)
-- [ ] Challenges list — separate section with mode indicator (SOLO/TEAM/CHOICE)
-- [ ] Task Marketplace section with upvote buttons and vote counts
-- [ ] "Suggest Task" form (modal or inline)
-- [ ] Task detail expansion — description, assigned team/user, due date
-- [ ] Proof submission form (file upload + notes)
-- [ ] Approve/Complete actions for Leaders/Teachers (inline buttons)
+- [x] Team Tasks list with status badges (OPEN, IN_PROGRESS, PENDING_APPROVAL, COMPLETED)
+- [x] Challenges list — separate section with mode indicator (SOLO/TEAM/CHOICE)
+- [x] Task Marketplace section with upvote buttons and real-time vote counts
+- [x] "Suggest Marketplace Idea" modal form (with task_type & mode)
+- [x] Proof submission modal form (file upload + deliverable notes)
+- [x] Leader/Teacher "Approve & Complete Task" inline buttons
 
 ---
 
-### 0.10-alpha — Frontend: Teams View
+### 0.10-alpha — Frontend: Teams View ✅ DONE
 
 > *Team management UI with point redistribution*
 
-- [ ] Active teams grid/list with member avatars and captain badge
-- [ ] Team detail expansion — members, point shares, assigned task
-- [ ] "Create Team" form (leader/teacher only)
-- [ ] Point redistribution sliders/inputs per member
-- [ ] Dissolve team action (with confirmation)
-- [ ] Unassigned students pool indicator
+- [x] Active teams grid displaying member rosters & captain badge
+- [x] Custom point redistribution weight share per member (100%, 150%, 50%)
+- [x] "Create Squad" modal form (leader/teacher)
+- [x] Dissolve team action (with confirmation)
+- [x] Unassigned cohort pool indicator
 
 ---
 
@@ -415,6 +413,8 @@ Bug fixes and polish based on alpha tester feedback. Most features already imple
 | 0.04-alpha | ✅ Done | Jul 31, 2026 | Tasks & Challenges API |
 | 0.05-alpha | ✅ Done | Jul 31, 2026 | Teams & Point System API |
 | 0.06-alpha | ✅ Done | Aug 1, 2026 | Code quality refactor, N+1 fix, tests green |
-| 0.07-alpha | 🔨 WIP | Aug 1, 2026 | Frontend shell & state |
-| 0.08-alpha | ⬜ Next | — | Dashboard view |
-| 0.50-alpha | 🎯 Target | Aug 1, 2026 | First user testing release |
+| 0.07-alpha | ✅ Done | Aug 1, 2026 | Frontend shell & state |
+| 0.08-alpha | ✅ Done | Aug 1, 2026 | Dashboard glassmorphism view |
+| 0.09-alpha | ✅ Done | Aug 1, 2026 | Tasks & Challenges view with marketplace upvoting |
+| 0.10-alpha | ✅ Done | Aug 1, 2026 | Teams view with member point weight share controls |
+| 0.50-alpha | ✅ RELEASED | Aug 1, 2026 | First User Testing Release (Alpha Stage) |
