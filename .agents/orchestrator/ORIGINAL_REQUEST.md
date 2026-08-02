@@ -35,3 +35,44 @@ Working directory: p:\projects\Forge
 - [ ] Express server exposes REST endpoints for all MVP features.
 - [ ] No visible 'Operation Overthink' text or emoji icons present on the UI.
 - [ ] npm run dev launches Node.js server and serves static HTML/JS frontend cleanly.
+
+## Follow-up — 2026-08-01T20:31:00Z
+
+Replace the insecure `x-user-id` header authentication mechanism with a robust, standard authentication system using bcrypt password hashing and JSON Web Tokens (JWT) for session management.
+
+Working directory: `p:\projects\Forge`
+Integrity mode: development
+
+## Requirements
+
+### R1. Password Hashing & Database Migration
+- Integrate password hashing (`bcrypt` or `argon2`) for user passwords.
+- Update `password_hash` handling in `src/server/services/auth.js` and `src/server/db/database.js`.
+- Migrate any plain-text seed data in the database setup so that no plaintext passwords exist in `forge.db` or seed scripts.
+
+### R2. JWT Authentication & Session Management
+- Implement JSON Web Tokens (JWT) for session management.
+- Issue tokens upon successful login/signup in `src/server/routes/auth.js`.
+- Protect routes by validating JWT via middleware in `src/server/middleware/auth.js` (accepting `Authorization: Bearer <token>` or `httpOnly` cookie).
+- Completely eliminate the `x-user-id` header authentication mechanism across all server routes and middleware.
+
+### R3. Preserved Capabilities & Password Change Endpoint
+- Preserve the `DEV_STEALTH` role masking behavior for superadmin capabilities.
+- Implement a password change API endpoint (`POST /api/auth/change-password` or equivalent) requiring valid JWT authentication and current password verification.
+
+### R4. Frontend SPA Updates
+- Update `src/public/js/services/api.js` and login/signup UI components to securely store the JWT (e.g. localStorage/sessionStorage/cookies) and send it with all authenticated requests.
+- Remove all instances of `x-user-id` header usage from frontend services.
+
+## Acceptance Criteria
+
+### Security & Authentication
+- [ ] No plaintext passwords remain in the database (`forge.db`) or seed initialization files.
+- [ ] The `x-user-id` header is completely removed from the backend; requesting protected endpoints without a valid JWT returns HTTP 401 Unauthorized.
+- [ ] User login and signup successfully issue valid JWT tokens.
+- [ ] A password change endpoint is implemented and protected by JWT authentication.
+
+### Functionality & Tests
+- [ ] The `DEV_STEALTH` role masking mechanism continues to work properly for superadmin users.
+- [ ] Frontend app updates store the JWT upon login and automatically include it in subsequent API requests.
+- [ ] All automated tests in `tests/` pass with updated token-based authentication.

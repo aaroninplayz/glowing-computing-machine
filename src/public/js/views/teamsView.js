@@ -4,8 +4,9 @@ import { overridePoints, dissolveTeam, createTeam } from '../services/api.js';
 
 export function renderTeamsView(state) {
   const { teamsData, currentUser } = state;
-  const userRole = currentUser ? (currentUser.public_role || currentUser.role) : 'OPERATIVE';
-  const isLeaderOrTeacher = ['STUDENT_LEADER', 'TEACHER', 'DEV_STEALTH'].includes(userRole);
+  const userRole = currentUser ? (currentUser.public_role || currentUser.role) : 'member';
+  const isLeaderOrTeacher = ['leader', 'teacher', 'admin', 'DEV_STEALTH', 'STUDENT_LEADER', 'TEACHER'].includes(currentUser ? currentUser.role : '') || ['leader', 'teacher', 'admin', 'STUDENT_LEADER', 'TEACHER'].includes(userRole);
+
 
   return `
     <div class="space-y-8">
@@ -50,8 +51,8 @@ export function renderTeamsView(state) {
 }
 
 function renderTeamCard(t, currentUser, isLeaderOrTeacher) {
-  const currentUserId = currentUser ? currentUser.id : 'u_dev';
-  const isCaptain = t.captain_id === currentUserId;
+  const currentUserId = currentUser ? currentUser.id : null;
+  const isCaptain = currentUserId && t.captain_id === currentUserId;
   const canManage = isCaptain || isLeaderOrTeacher;
 
   return `
@@ -129,7 +130,7 @@ function renderTeamCard(t, currentUser, isLeaderOrTeacher) {
 }
 
 export function attachTeamsEvents(state, refreshData) {
-  const currentUserId = state.currentUser ? state.currentUser.id : 'u_dev';
+  const currentUserId = state.currentUser ? state.currentUser.id : null;
 
   // Create Team Modal Handler
   const createTeamBtn = document.getElementById('btnCreateTeam');
@@ -173,7 +174,7 @@ export function attachTeamsEvents(state, refreshData) {
         onConfirm: async (overlay) => {
           const val = parseFloat(overlay.querySelector('#modalShareWeight').value);
           if (isNaN(val) || val < 0) return false;
-          await overridePoints(teamId, userId, val, currentUserId);
+          await overridePoints(teamId, userId, val);
           refreshData();
           return true;
         }
@@ -191,7 +192,7 @@ export function attachTeamsEvents(state, refreshData) {
           <p class="text-xs text-outline">Are you sure you want to dissolve this squad back into the unassigned cohort pool?</p>
         `,
         onConfirm: async () => {
-          await dissolveTeam(teamId, 'MANUAL', currentUserId);
+          await dissolveTeam(teamId, 'MANUAL');
           refreshData();
           return true;
         }

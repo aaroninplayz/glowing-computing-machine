@@ -31,6 +31,6 @@ echo Server running at http://localhost:3001
 echo Press Ctrl+C in this window to stop the server.
 echo.
 
-start http://localhost:3001
+start "" powershell -Command "Start-Sleep -Seconds 2; Start-Process 'http://localhost:3001'"
 
 call npm start

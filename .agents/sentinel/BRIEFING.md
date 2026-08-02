@@ -1,12 +1,12 @@
-# BRIEFING — 2026-08-01T01:02:29+05:30
+# BRIEFING — 2026-08-01T20:31:00Z
 
 ## Mission
-Orchestrate and monitor the Forge Phase 1 MVP Transition to Vanilla HTML/JS/CSS, Node/Express, and SQLite.
+Orchestrate and monitor the Forge JWT & Bcrypt Authentication Refactor.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: p:\projects\Forge\.agents\sentinel
-- Orchestrator: 28194255-edb8-4d26-8fa9-203f80ed1c69
+- Orchestrator: 24c17043-ec5f-44fb-85fc-a04ac84decf7
 - Victory Auditor: to be spawned on victory claim
 
 ## 🔒 Key Constraints
@@ -15,12 +15,12 @@ Orchestrate and monitor the Forge Phase 1 MVP Transition to Vanilla HTML/JS/CSS,
 - Sentinel monitor crons for progress and liveness
 
 ## User Context
-- **Last user request**: Forge Phase 1 MVP Transition prompt received.
+- **Last user request**: Replace `x-user-id` header auth with bcrypt password hashing and JWT session management.
 - **Pending clarifications**: none
 - **Delivered results**: none
 
 ## Project Status
-- **Phase**: starting
+- **Phase**: in progress
 
 ## Victory Audit Status
 - **Triggered**: no

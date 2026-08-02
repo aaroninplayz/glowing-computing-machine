@@ -1,71 +1,181 @@
-import { describe, it, before } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import supertest from 'supertest';
-import express from 'express';
-import { db, initSchema } from '../src/server/db/database.js';
+import { app } from '../src/server/app.js';
+import { resetTestDb } from './helpers/testDb.js';
+import { UserFactory, TaskFactory, AuthFactory } from './helpers/factories.js';
 
-describe('Tasks & Marketplace Endpoints', () => {
-  let app;
+test('Task System Full Lifecycle & Specifications', async (t) => {
+  resetTestDb();
 
-  before(() => {
-    initSchema();
-    db.prepare("INSERT OR IGNORE INTO users (id, name, username, email, password_hash, role) VALUES ('u_o4', 'Taylor', 'taylor_op', 'taylor@forge.local', 'pass123', 'OPERATIVE')").run();
-    db.prepare("INSERT OR IGNORE INTO tasks (id, title, description, total_points, is_marketplace, status) VALUES ('market1', 'Market Task', 'Desc', 20, 1, 'MARKETPLACE')").run();
-    app = express();
-    app.use(express.json());
+  const memberUser = UserFactory.create({ role: 'member', username: 'standard_member' });
+  const memberToken = AuthFactory.createToken(memberUser);
 
-    app.get('/api/tasks', (req, res) => {
-      const official = db.prepare('SELECT * FROM tasks WHERE is_marketplace = 0').all();
-      const marketplace = db.prepare(`
-        SELECT t.*, (SELECT COUNT(*) FROM task_upvotes tu WHERE tu.task_id = t.id) as upvotes
-        FROM tasks t WHERE t.is_marketplace = 1
-      `).all();
-      res.json({ official, marketplace });
-    });
+  const leaderUser = UserFactory.create({ role: 'leader', username: 'squad_leader' });
+  const leaderToken = AuthFactory.createToken(leaderUser);
 
-    app.post('/api/tasks/suggest', (req, res) => {
-      const { title, description, total_points } = req.body;
-      const taskId = `market_test_${Date.now()}`;
-      db.prepare(`
-        INSERT INTO tasks (id, title, description, total_points, is_marketplace, status)
-        VALUES (?, ?, ?, ?, 1, 'MARKETPLACE')
-      `).run(taskId, title, description, total_points || 20);
-      res.json({ success: true, taskId });
-    });
+  const adminUser = UserFactory.create({ role: 'admin', username: 'system_admin' });
+  const adminToken = AuthFactory.createToken(adminUser);
 
-    app.post('/api/tasks/:id/upvote', (req, res) => {
-      const { id } = req.params;
-      const userId = req.body.user_id || 'u_o1';
-      db.prepare('INSERT OR IGNORE INTO task_upvotes (task_id, user_id) VALUES (?, ?)').run(id, userId);
-      const count = db.prepare('SELECT COUNT(*) as upvotes FROM task_upvotes WHERE task_id = ?').get(id).upvotes;
-      res.json({ success: true, upvotes: count });
-    });
-  });
+  let createdTaskId = null;
 
-  it('should list tasks and return official and marketplace lists', async () => {
-    const res = await supertest(app).get('/api/tasks');
-    assert.equal(res.status, 200);
-    assert.ok(Array.isArray(res.body.official));
-    assert.ok(Array.isArray(res.body.marketplace));
-  });
-
-  it('should suggest a new marketplace task', async () => {
+  await t.test('should list tasks and return grouped task objects', async () => {
     const res = await supertest(app)
-      .post('/api/tasks/suggest')
-      .send({ title: 'Test Suggestion', description: 'Test description', total_points: 30 });
+      .get('/api/tasks')
+      .set('Authorization', `Bearer ${memberToken}`);
+
+    assert.equal(res.status, 200);
+    assert.ok(res.body.teamTasks !== undefined || res.body.official !== undefined || Array.isArray(res.body));
+  });
+
+  await t.test('should block unauthorized standard member from creating a task (403)', async () => {
+    const res = await supertest(app)
+      .post('/api/tasks')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({
+        title: 'Unauthorized Task Attempt',
+        description: 'Should fail',
+        total_points: 50
+      });
+
+    assert.equal(res.status, 403);
+  });
+
+  await t.test('should allow leader/admin to create task with all expanded fields', async () => {
+    const taskPayload = {
+      title: 'Full Lifecycle Auth Microservice',
+      description: 'Build robust JWT & RBAC auth module',
+      instructions: '1. Set up JWT middleware\n2. Integrate SQLite role tables\n3. Write test cases',
+      resources: 'https://jwt.io\nhttps://expressjs.com',
+      deadline: new Date(Date.now() + 86400000).toISOString(),
+      difficulty: 'HARD',
+      total_points: 100,
+      xp_reward: 250,
+      badge_reward: 'Security Champion',
+      proof_requirements: 'Submit GitHub Pull Request link and test output logs',
+      task_type: 'TEAM_TASK',
+      mode: 'TEAM',
+      status: 'draft'
+    };
+
+    const res = await supertest(app)
+      .post('/api/tasks')
+      .set('Authorization', `Bearer ${leaderToken}`)
+      .send(taskPayload);
+
+    assert.equal(res.status, 201);
+    assert.equal(res.body.success, true);
+    assert.ok(res.body.task);
+    assert.equal(res.body.task.title, taskPayload.title);
+    assert.equal(res.body.task.instructions, taskPayload.instructions);
+    assert.equal(res.body.task.difficulty, 'HARD');
+    assert.equal(res.body.task.xp_reward, 250);
+    assert.equal(res.body.task.badge_reward, 'Security Champion');
+    assert.equal(res.body.task.proof_requirements, taskPayload.proof_requirements);
+    assert.equal(res.body.task.status, 'draft');
+
+    createdTaskId = res.body.task.id;
+  });
+
+  await t.test('should retrieve full task details by ID via GET /api/tasks/:id', async () => {
+    const res = await supertest(app)
+      .get(`/api/tasks/${createdTaskId}`)
+      .set('Authorization', `Bearer ${memberToken}`);
 
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
-    assert.ok(res.body.taskId);
+    assert.ok(res.body.task);
+    assert.equal(res.body.task.id, createdTaskId);
+    assert.equal(res.body.task.instructions, '1. Set up JWT middleware\n2. Integrate SQLite role tables\n3. Write test cases');
+    assert.equal(res.body.task.xp_reward, 250);
+    assert.ok(Array.isArray(res.body.task.submissions));
   });
 
-  it('should upvote a marketplace task and return incremented count', async () => {
+  await t.test('should validate allowed lifecycle status transitions (draft -> active)', async () => {
     const res = await supertest(app)
-      .post('/api/tasks/market1/upvote')
-      .send({ user_id: 'u_o4' });
+      .patch(`/api/tasks/${createdTaskId}/status`)
+      .set('Authorization', `Bearer ${leaderToken}`)
+      .send({ status: 'active' });
 
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
-    assert.ok(res.body.upvotes >= 1);
+    assert.equal(res.body.task.status, 'active');
+  });
+
+  await t.test('should block invalid status transitions (e.g. draft/active directly to completed) (400)', async () => {
+    const res = await supertest(app)
+      .patch(`/api/tasks/${createdTaskId}/status`)
+      .set('Authorization', `Bearer ${leaderToken}`)
+      .send({ status: 'completed' });
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.ok(res.body.error.includes('Invalid status transition'));
+  });
+
+  await t.test('should transition active -> in_progress -> pending_review -> completed', async () => {
+    // active -> in_progress
+    let res = await supertest(app)
+      .patch(`/api/tasks/${createdTaskId}/status`)
+      .set('Authorization', `Bearer ${leaderToken}`)
+      .send({ status: 'in_progress' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.task.status, 'in_progress');
+
+    // in_progress -> pending_review
+    res = await supertest(app)
+      .patch(`/api/tasks/${createdTaskId}/status`)
+      .set('Authorization', `Bearer ${leaderToken}`)
+      .send({ status: 'pending_review' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.task.status, 'pending_review');
+
+    // pending_review -> completed
+    res = await supertest(app)
+      .patch(`/api/tasks/${createdTaskId}/status`)
+      .set('Authorization', `Bearer ${leaderToken}`)
+      .send({ status: 'completed' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.task.status, 'completed');
+  });
+
+  await t.test('should filter and search tasks via GET /api/tasks query params', async () => {
+    const res = await supertest(app)
+      .get('/api/tasks?status=completed&difficulty=HARD&search=Auth')
+      .set('Authorization', `Bearer ${memberToken}`);
+
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+    assert.ok(res.body.length >= 1);
+    assert.equal(res.body[0].id, createdTaskId);
+  });
+
+  await t.test('should update task details via PUT /api/tasks/:id', async () => {
+    const res = await supertest(app)
+      .put(`/api/tasks/${createdTaskId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        title: 'Full Lifecycle Auth Microservice (Updated)',
+        total_points: 150
+      });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.task.title, 'Full Lifecycle Auth Microservice (Updated)');
+    assert.equal(res.body.task.total_points, 150);
+  });
+
+  await t.test('should delete task via DELETE /api/tasks/:id', async () => {
+    const res = await supertest(app)
+      .delete(`/api/tasks/${createdTaskId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+
+    const getRes = await supertest(app)
+      .get(`/api/tasks/${createdTaskId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    assert.equal(getRes.status, 404);
   });
 });

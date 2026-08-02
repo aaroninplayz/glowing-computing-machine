@@ -1,110 +1,98 @@
 // Main ES Module Entry Point
 import { store } from './state/store.js';
 import { fetchCurrentUser, fetchTasks, fetchTeams, fetchHallOfFame } from './services/api.js';
+import { initDrawerNav } from './components/drawer.js';
+import { updateUserBadges } from './components/userBadges.js';
+import { initNotificationBell } from './components/notificationBell.js';
+import { Router } from './router/router.js';
 
-import { renderDashboard, attachDashboardEvents } from './views/dashboardView.js';
-import { renderTasksView, attachTasksEvents } from './views/tasksView.js';
-import { renderTeamsView, attachTeamsEvents } from './views/teamsView.js';
+// Explicit view imports re-exported for static asset inspection and router dispatch
+export { renderDashboard } from './views/dashboardView.js';
+export { renderTasksView } from './views/tasksView.js';
+export { renderChallengesView } from './views/challengesView.js';
+export { renderTeamsView } from './views/teamsView.js';
+export { renderHallOfFameView } from './views/hallOfFameView.js';
+export { renderLoginView } from './views/loginView.js';
+export { renderSignUpView } from './views/signUpView.js';
+export { renderSettingsView } from './views/settingsView.js';
+export { renderDevDashboardView } from './views/devDashboardView.js';
+export { renderComponentsTestView } from './views/componentsTestView.js';
 
-document.addEventListener('DOMContentLoaded', () => {
-  initNav();
-  initUserSelector();
+const router = new Router('appView');
+
+function bootApp() {
+  initDrawerNav();
+  initNotificationBell();
+  initUserSession();
+
+  document.addEventListener('forge:navigate', (e) => {
+    if (e.detail && e.detail.tab) {
+      store.setState({ activeTab: e.detail.tab });
+    }
+  });
 
   store.subscribe((state) => {
-    renderAppView(state);
-    updateHeaderUserBadge(state.currentUser);
+    router.renderRoute(state, loadAllData);
+    updateUserBadges(state.currentUser);
   });
+
+  // Render initial view immediately so page is never empty on load
+  router.renderRoute(store.getState(), loadAllData);
+  updateUserBadges(store.getState().currentUser);
 
   loadAllData();
-});
-
-function initNav() {
-  const tabs = document.querySelectorAll('.nav-tab');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', (e) => {
-      tabs.forEach(t => {
-        t.classList.remove('text-royal-slate-blue', 'border-b-2', 'border-royal-slate-blue', 'pb-1');
-        t.classList.add('text-outline');
-      });
-
-      const target = e.currentTarget;
-      target.classList.remove('text-outline');
-      target.classList.add('text-royal-slate-blue', 'border-b-2', 'border-royal-slate-blue', 'pb-1');
-
-      const activeTab = target.getAttribute('data-tab');
-      store.setState({ activeTab });
-    });
-  });
 }
 
-function initUserSelector() {
-  const selector = document.getElementById('userSelector');
-  if (selector) {
-    selector.addEventListener('change', async (e) => {
-      const selectedUserId = e.target.value;
-      try {
-        const userRes = await fetchCurrentUser(selectedUserId);
-        if (userRes && userRes.user) {
-          store.setState({ currentUser: userRes.user });
-          loadAllData();
-        }
-      } catch (err) {
-        console.error('Failed to switch user context:', err);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootApp);
+} else {
+  bootApp();
+}
+
+export async function logoutUser() {
+  localStorage.removeItem('forge_jwt_token');
+  localStorage.removeItem('forge_user_session');
+  store.setState({ currentUser: null, activeTab: 'login' });
+}
+
+export async function initUserSession() {
+  const token = localStorage.getItem('forge_jwt_token');
+  if (token) {
+    try {
+      const userRes = await fetchCurrentUser();
+      if (userRes && userRes.user) {
+        localStorage.setItem('forge_user_session', JSON.stringify(userRes.user));
+        store.setState({ currentUser: userRes.user });
+        return;
       }
-    });
-  }
-
-  // Load initial user
-  fetchCurrentUser('u_dev').then(userRes => {
-    if (userRes && userRes.user) {
-      store.setState({ currentUser: userRes.user });
+    } catch (e) {
+      console.error('Session validation failed:', e);
     }
-  }).catch(console.error);
-}
-
-function updateHeaderUserBadge(user) {
-  if (!user) return;
-  const userTagBadge = document.getElementById('userTagBadge');
-  if (userTagBadge) {
-    userTagBadge.textContent = `${user.name} (${user.tag || user.public_role || user.role})`;
   }
+
+  localStorage.removeItem('forge_jwt_token');
+  localStorage.removeItem('forge_user_session');
+  store.setState({ currentUser: null });
 }
 
 export async function loadAllData() {
   try {
-    const currentUser = store.getState().currentUser;
-    const userId = currentUser ? currentUser.id : 'u_dev';
-
-    const [tasksRes, teamsRes, hallRes] = await Promise.all([
-      fetchTasks(userId),
-      fetchTeams(userId),
-      fetchHallOfFame(userId)
+    const [tasksSettled, teamsSettled, hallSettled] = await Promise.allSettled([
+      fetchTasks(),
+      fetchTeams(),
+      fetchHallOfFame()
     ]);
 
+    const tasksData = tasksSettled.status === 'fulfilled' ? tasksSettled.value : store.getState().tasksData;
+    const teamsData = teamsSettled.status === 'fulfilled' ? teamsSettled.value : store.getState().teamsData;
+    const hallOfFameData = hallSettled.status === 'fulfilled' ? hallSettled.value : store.getState().hallOfFameData;
+
     store.setState({
-      tasksData: tasksRes || { teamTasks: [], challenges: [], marketplace: [] },
-      teamsData: teamsRes || [],
-      hallOfFameData: hallRes || { allTime: [], season1: [], titles: [] }
+      tasksData: tasksData || { teamTasks: [], challenges: [], marketplace: [] },
+      teamsData: teamsData || [],
+      hallOfFameData: hallOfFameData || { allTime: [], season1: [], titles: [] }
     });
   } catch (err) {
     console.error('Error loading API data:', err);
-  }
-}
-
-function renderAppView(state) {
-  const appView = document.getElementById('appView');
-  if (!appView) return;
-
-  const { activeTab } = state;
-
-  if (activeTab === 'dashboard') {
-    appView.innerHTML = renderDashboard(state);
-    attachDashboardEvents(state, loadAllData);
-  } else if (activeTab === 'tasks') {
-    appView.innerHTML = renderTasksView(state);
-    attachTasksEvents(state, loadAllData);
-  } else if (activeTab === 'teams') {
-    appView.innerHTML = renderTeamsView(state);
-    attachTeamsEvents(state, loadAllData);
   }
 }

@@ -8,7 +8,8 @@ export function renderHallOfFameView(state) {
   const allTime = hallOfFameData.allTime || [];
   const season1 = hallOfFameData.season1 || [];
   const titles = hallOfFameData.titles || [];
-  const isTeacherOrDev = ['TEACHER', 'DEV_STEALTH'].includes(currentUser.role);
+  const userRole = currentUser ? (currentUser.public_role || currentUser.role) : '';
+  const isTeacherOrDev = ['TEACHER'].includes(userRole);
 
   return `
     <div class="hall-of-fame-wrapper">
