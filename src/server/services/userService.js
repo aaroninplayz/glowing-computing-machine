@@ -3,6 +3,11 @@ import { OWNER_ID, ADMIN_ROLES } from '../config/constants.js';
 import { UserModel } from '../models/User.js';
 import { sanitizeUser } from '../utils/sanitize.js';
 import { ActivityService } from './activity.js';
+import { db } from '../db/database.js';
+import { getXpProgress } from './xp.js';
+import { TeamModel } from '../models/Team.js';
+import { ActivityModel } from '../models/Activity.js';
+import { XpModel } from '../models/Xp.js';
 
 export const UserService = {
   login(identifier, password) {
@@ -175,6 +180,134 @@ export const UserService = {
     return sanitizeUser(updatedUser);
   },
 
+
+  getUserProfile(targetUserId) {
+    const user = UserModel.getByIdOrUsername(targetUserId);
+    if (!user) {
+      throw { status: 404, message: 'User not found' };
+    }
+
+    const userId = user.id;
+
+    // 1. XP Summary & Level Progression
+    const xpSummary = getXpProgress(user.xp || 0);
+
+    // 2. Performance Metrics & Counts
+    const completedTasksRow = db.prepare(`
+      SELECT COUNT(*) as cnt FROM tasks
+      WHERE assigned_user_id = ? AND status IN ('COMPLETED', 'CLOSED')
+    `).get(userId);
+    const completedTasksCount = completedTasksRow ? completedTasksRow.cnt : 0;
+
+    const challengeWinsRow = db.prepare(`
+      SELECT COUNT(*) as cnt FROM tasks
+      WHERE assigned_user_id = ? AND task_type = 'CHALLENGE' AND status IN ('COMPLETED', 'CLOSED')
+    `).get(userId);
+    const challengeWinsCount = challengeWinsRow ? challengeWinsRow.cnt : 0;
+
+    // Compute Rank
+    const rankRow = db.prepare(`
+      SELECT COUNT(*) + 1 as rank FROM users
+      WHERE role != 'DEV_STEALTH' AND (xp > ? OR (xp = ? AND level > ?))
+    `).get(user.xp || 0, user.xp || 0, user.level || 1);
+    const communityRank = rankRow ? rankRow.rank : 1;
+
+    // 3. Current Squad Team
+    const allActiveTeams = TeamModel.getAllActive();
+    const myTeam = allActiveTeams.find(t => t.members && t.members.some(m => m.id === userId)) || null;
+    const teamStatus = myTeam ? {
+      id: myTeam.id,
+      name: myTeam.name,
+      captainId: myTeam.captain_id,
+      memberCount: myTeam.members.length,
+      status: myTeam.status || 'ACTIVE'
+    } : null;
+
+    // 4. Badges & Achievement Showcase Grid
+    const badges = [
+      {
+        id: 'b_welcome',
+        title: 'First Step',
+        category: 'COMMUNITY',
+        rarity: 'Common',
+        unlocked: true,
+        description: 'Joined the Forge ecosystem',
+        earned_at: user.created_at
+      },
+      {
+        id: 'b_squad',
+        title: 'Squad Operative',
+        category: 'TEAM',
+        rarity: 'Common',
+        unlocked: !!myTeam,
+        description: 'Assigned to an active squad team',
+        earned_at: myTeam ? user.created_at : null
+      },
+      {
+        id: 'b_taskmaster',
+        title: 'Task Master',
+        category: 'TASKS',
+        rarity: 'Rare',
+        unlocked: completedTasksCount >= 5,
+        description: 'Completed 5+ assigned tasks',
+        earned_at: completedTasksCount >= 5 ? new Date().toISOString() : null
+      },
+      {
+        id: 'b_challenge',
+        title: 'Victor',
+        category: 'COMPETITIVE',
+        rarity: 'Legendary',
+        unlocked: challengeWinsCount >= 1,
+        description: 'Won a community challenge',
+        earned_at: challengeWinsCount >= 1 ? new Date().toISOString() : null
+      },
+      {
+        id: 'b_veteran',
+        title: 'Level 5 Veteran',
+        category: 'PROGRESSION',
+        rarity: 'Rare',
+        unlocked: (user.level || 1) >= 5,
+        description: 'Reached Level 5 in the XP Economy',
+        earned_at: (user.level || 1) >= 5 ? new Date().toISOString() : null
+      }
+    ];
+
+    // 5. Activity Timeline Feed
+    const recentActivities = ActivityModel.getByUserId(userId, { limit: 10 });
+    const recentXpResult = XpModel.getUserXpHistory(userId, { limit: 10 });
+    const recentXpHistory = (recentXpResult && recentXpResult.history) || [];
+
+    const activityFeed = [
+      ...recentActivities.map(a => ({
+        id: a.id,
+        type: 'ACTIVITY',
+        title: a.action,
+        description: a.details ? (typeof a.details === 'object' ? JSON.stringify(a.details) : String(a.details)) : `Action: ${a.action}`,
+        timestamp: a.created_at
+      })),
+      ...recentXpHistory.map(x => ({
+        id: x.id,
+        type: 'XP_TRANSACTION',
+        title: x.amount >= 0 ? `+${x.amount} XP Awarded` : `${x.amount} XP Deducted`,
+        description: x.reason || `Source: ${x.source_type}`,
+        amount: x.amount,
+        timestamp: x.created_at
+      }))
+    ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 15);
+
+    return {
+      user: sanitizeUser(user),
+      xpSummary,
+      stats: {
+        completedTasksCount,
+        challengeWinsCount,
+        communityRank
+      },
+      teamStatus,
+      badges,
+      activityFeed
+    };
+  },
 
   getSettings() {
     return UserModel.getSystemSettings();

@@ -1,6 +1,6 @@
 // Main ES Module Entry Point
 import { store } from './state/store.js';
-import { fetchCurrentUser, fetchTasks, fetchTeams, fetchHallOfFame } from './services/api.js';
+import { fetchCurrentUser, fetchTasks, fetchTeams, fetchHallOfFame, fetchAnnouncements, fetchDashboardData } from './services/api.js';
 import { initDrawerNav } from './components/drawer.js';
 import { updateUserBadges } from './components/userBadges.js';
 import { initNotificationBell } from './components/notificationBell.js';
@@ -8,6 +8,7 @@ import { Router } from './router/router.js';
 
 // Explicit view imports re-exported for static asset inspection and router dispatch
 export { renderDashboard } from './views/dashboardView.js';
+export { renderAnnouncementsView } from './views/announcementsView.js';
 export { renderTasksView } from './views/tasksView.js';
 export { renderChallengesView } from './views/challengesView.js';
 export { renderTeamsView } from './views/teamsView.js';
@@ -15,6 +16,10 @@ export { renderHallOfFameView } from './views/hallOfFameView.js';
 export { renderLoginView } from './views/loginView.js';
 export { renderSignUpView } from './views/signUpView.js';
 export { renderSettingsView } from './views/settingsView.js';
+export { renderProfileView } from './views/profileView.js';
+export { renderLeaderboardView } from './views/leaderboardView.js';
+export { renderNotificationsView } from './views/notificationsView.js';
+export { renderAdminView } from './views/adminView.js';
 export { renderDevDashboardView } from './views/devDashboardView.js';
 export { renderComponentsTestView } from './views/componentsTestView.js';
 
@@ -77,20 +82,26 @@ export async function initUserSession() {
 
 export async function loadAllData() {
   try {
-    const [tasksSettled, teamsSettled, hallSettled] = await Promise.allSettled([
+    const [tasksSettled, teamsSettled, hallSettled, annSettled, dashSettled] = await Promise.allSettled([
       fetchTasks(),
       fetchTeams(),
-      fetchHallOfFame()
+      fetchHallOfFame(),
+      fetchAnnouncements(),
+      fetchDashboardData()
     ]);
 
     const tasksData = tasksSettled.status === 'fulfilled' ? tasksSettled.value : store.getState().tasksData;
     const teamsData = teamsSettled.status === 'fulfilled' ? teamsSettled.value : store.getState().teamsData;
     const hallOfFameData = hallSettled.status === 'fulfilled' ? hallSettled.value : store.getState().hallOfFameData;
+    const announcementsData = annSettled.status === 'fulfilled' ? (annSettled.value ? (annSettled.value.announcements || annSettled.value) : []) : store.getState().announcementsData;
+    const dashboardData = dashSettled.status === 'fulfilled' ? (dashSettled.value ? dashSettled.value.data : null) : store.getState().dashboardData;
 
     store.setState({
       tasksData: tasksData || { teamTasks: [], challenges: [], marketplace: [] },
       teamsData: teamsData || [],
-      hallOfFameData: hallOfFameData || { allTime: [], season1: [], titles: [] }
+      hallOfFameData: hallOfFameData || { allTime: [], season1: [], titles: [] },
+      announcementsData: Array.isArray(announcementsData) ? announcementsData : [],
+      dashboardData: dashboardData || null
     });
   } catch (err) {
     console.error('Error loading API data:', err);

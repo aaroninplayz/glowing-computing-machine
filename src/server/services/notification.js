@@ -1,10 +1,50 @@
 import { NotificationModel } from '../models/Notification.js';
 
 export const NotificationService = {
+  getPreferences(userId) {
+    if (!userId) {
+      throw { status: 400, message: 'User ID is required' };
+    }
+    return NotificationModel.getPreferences(userId);
+  },
+
+  updatePreferences(userId, prefs) {
+    if (!userId) {
+      throw { status: 400, message: 'User ID is required' };
+    }
+    return NotificationModel.updatePreferences(userId, prefs);
+  },
+
+  isNotificationAllowed(userId, type) {
+    const prefs = NotificationModel.getPreferences(userId);
+    const upperType = String(type || 'INFO').toUpperCase();
+
+    if (['ASSIGNMENT', 'TASK', 'DEADLINE'].includes(upperType) && !prefs.taskAlerts) {
+      return false;
+    }
+    if (['REVIEW', 'RATING'].includes(upperType) && !prefs.reviewAlerts) {
+      return false;
+    }
+    if (['INFO', 'ALERT', 'WARNING', 'ANNOUNCEMENT'].includes(upperType) && !prefs.systemAlerts) {
+      return false;
+    }
+    if (['MENTION', 'COMMUNITY', 'REWARD'].includes(upperType) && !prefs.socialAlerts) {
+      return false;
+    }
+
+    return true;
+  },
+
   createNotification({ userId, title, message, type = 'INFO', link = null }) {
     if (!userId || !title || !message) {
       throw { status: 400, message: 'userId, title, and message are required' };
     }
+
+    // Respect user notification preferences
+    if (!this.isNotificationAllowed(userId, type)) {
+      return null; // Notification halted due to user preference
+    }
+
     return NotificationModel.create({ userId, title, message, type, link });
   },
 
@@ -12,10 +52,15 @@ export const NotificationService = {
     if (!Array.isArray(notifications) || !notifications.length) {
       throw { status: 400, message: 'notifications array is required' };
     }
-    return NotificationModel.createBulk(notifications);
+
+    // Filter bulk notifications based on each user's preferences
+    const allowed = notifications.filter(n => this.isNotificationAllowed(n.userId, n.type));
+    if (allowed.length === 0) return false;
+
+    return NotificationModel.createBulk(allowed);
   },
 
-  getUserNotifications(userId, { limit = 20, offset = 0, unreadOnly = false } = {}) {
+  getUserNotifications(userId, { limit = 20, offset = 0, unreadOnly = false, category = null } = {}) {
     if (!userId) {
       throw { status: 400, message: 'User ID is required' };
     }
@@ -26,7 +71,8 @@ export const NotificationService = {
     return NotificationModel.getByUserId(userId, {
       limit: parsedLimit,
       offset: parsedOffset,
-      unreadOnly: isUnread
+      unreadOnly: isUnread,
+      category
     });
   },
 

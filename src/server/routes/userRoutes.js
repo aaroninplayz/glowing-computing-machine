@@ -14,6 +14,15 @@ router.get('/users', validate({}), (req, res, next) => {
   }
 });
 
+router.get('/users/:id/profile', (req, res, next) => {
+  try {
+    const profile = UserService.getUserProfile(req.params.id);
+    res.json({ success: true, profile });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/users', requirePermission('USER_MANAGE'), validate({}), (req, res, next) => {
   try {
     const userId = UserService.createUser(req.body);

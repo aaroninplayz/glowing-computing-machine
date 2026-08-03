@@ -5,13 +5,15 @@ import { NotificationService } from '../services/notification.js';
 
 const router = express.Router();
 
+// GET /api/notifications - List user notifications (supports category, unreadOnly, limit, offset)
 router.get('/notifications', requireAuth, validate({}), (req, res, next) => {
   try {
-    const { limit, offset, unreadOnly } = req.query;
+    const { limit, offset, unreadOnly, category } = req.query;
     const notifications = NotificationService.getUserNotifications(req.user.id, {
       limit,
       offset,
-      unreadOnly
+      unreadOnly,
+      category
     });
     res.json(notifications);
   } catch (err) {
@@ -19,6 +21,7 @@ router.get('/notifications', requireAuth, validate({}), (req, res, next) => {
   }
 });
 
+// GET /api/notifications/count - Unread count
 router.get('/notifications/count', requireAuth, validate({}), (req, res, next) => {
   try {
     const result = NotificationService.getUnreadCount(req.user.id);
@@ -28,6 +31,27 @@ router.get('/notifications/count', requireAuth, validate({}), (req, res, next) =
   }
 });
 
+// GET /api/notifications/preferences - Retrieve user preferences
+router.get('/notifications/preferences', requireAuth, validate({}), (req, res, next) => {
+  try {
+    const preferences = NotificationService.getPreferences(req.user.id);
+    res.json({ success: true, preferences });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/notifications/preferences - Update user preferences
+router.put('/notifications/preferences', requireAuth, validate({}), (req, res, next) => {
+  try {
+    const preferences = NotificationService.updatePreferences(req.user.id, req.body);
+    res.json({ success: true, preferences });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/notifications/read-all - Bulk mark all as read
 router.put('/notifications/read-all', requireAuth, validate({}), (req, res, next) => {
   try {
     const result = NotificationService.markAllAsRead(req.user.id);
@@ -37,6 +61,7 @@ router.put('/notifications/read-all', requireAuth, validate({}), (req, res, next
   }
 });
 
+// PUT /api/notifications/:id/read - Mark individual notification as read
 router.put('/notifications/:id/read', requireAuth, validate({}), (req, res, next) => {
   try {
     const result = NotificationService.markAsRead(req.params.id, req.user.id);
@@ -46,6 +71,7 @@ router.put('/notifications/:id/read', requireAuth, validate({}), (req, res, next
   }
 });
 
+// POST /api/notifications/test - Dev test generator
 router.post('/notifications/test', requireAuth, validate({}), (req, res, next) => {
   try {
     const { title, message, type, link } = req.body;
@@ -56,7 +82,7 @@ router.post('/notifications/test', requireAuth, validate({}), (req, res, next) =
       type: type || 'INFO',
       link: link || '#dashboard'
     });
-    res.status(201).json(notif);
+    res.status(201).json(notif || { success: false, message: 'Notification muted by preferences' });
   } catch (err) {
     next(err);
   }

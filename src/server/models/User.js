@@ -1,14 +1,14 @@
 import { db } from '../db/database.js';
 
 export const UserModel = {
-  userByIdOrUsername: db.prepare('SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url FROM users WHERE id = ? OR username = ?'),
-  stealthUser: db.prepare("SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url FROM users WHERE role = 'DEV_STEALTH'"),
+  userByIdOrUsername: db.prepare('SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url, xp, level FROM users WHERE id = ? OR username = ?'),
+  stealthUser: db.prepare("SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url, xp, level FROM users WHERE role = 'DEV_STEALTH'"),
   findForAuth: db.prepare(`
-    SELECT id, name, username, email, phone, password_hash, role, tag, bio, skills, github_url, portfolio_url FROM users
+    SELECT id, name, username, email, phone, password_hash, role, tag, bio, skills, github_url, portfolio_url, xp, level FROM users
     WHERE id = ? OR email = ? OR username = ? OR phone = ?
   `),
-  allUsers: db.prepare("SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url, created_at FROM users"),
-  usersByRole: db.prepare("SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url, created_at FROM users WHERE role = ? AND role != 'DEV_STEALTH'"),
+  allUsers: db.prepare("SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url, xp, level, created_at FROM users"),
+  usersByRole: db.prepare("SELECT id, name, username, email, phone, role, tag, bio, skills, github_url, portfolio_url, xp, level, created_at FROM users WHERE role = ? AND role != 'DEV_STEALTH'"),
   activeLeaders: db.prepare(`
     SELECT slr.id, slr.user_id, u.name, u.username, slr.term_start, slr.term_end
     FROM student_leader_rotations slr JOIN users u ON slr.user_id = u.id

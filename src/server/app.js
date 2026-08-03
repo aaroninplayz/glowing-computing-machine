@@ -17,6 +17,14 @@ import hallOfFameRoutes from './routes/hallOfFameRoutes.js';
 import leaderRoutes from './routes/leaderRoutes.js';
 import notificationRoutes from './routes/notifications.js';
 import activityRoutes from './routes/activity.js';
+import subtaskRoutes from './routes/subtasks.js';
+import submissionRoutes from './routes/submissions.js';
+import reviewRoutes from './routes/reviewRoutes.js';
+import announcementRoutes from './routes/announcementRoutes.js';
+import xpRoutes from './routes/xpRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js';
+import leaderboardRoutes from './routes/leaderboard.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { TaskModel } from './models/Task.js';
 
 dotenv.config();
@@ -43,12 +51,20 @@ app.use(authenticateUser);
 // Mount API Routes
 app.use('/api', authRoutes);
 app.use('/api', userRoutes);
+app.use('/api', dashboardRoutes);
+app.use('/api', leaderboardRoutes);
 app.use('/api', taskRoutes);
+app.use('/api', subtaskRoutes);
+app.use('/api', submissionRoutes);
+app.use('/api', reviewRoutes);
+app.use('/api', announcementRoutes);
+app.use('/api', xpRoutes);
 app.use('/api', teamRoutes);
 app.use('/api', hallOfFameRoutes);
 app.use('/api', leaderRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api', activityRoutes);
+app.use('/api', adminRoutes);
 
 // Auto-seed initial demo tasks/teams if database is empty (disabled during test runs)
 const isTestEnvironment = process.env.NODE_ENV === 'test' || process.argv.some(arg => arg.includes('test'));

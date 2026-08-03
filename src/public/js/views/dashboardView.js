@@ -1,188 +1,339 @@
-// Dashboard View Renderer (FORGE Platform Theme)
+// Dashboard View Renderer (FORGE Platform Theme - Stitch MCP Blueprint)
+import { openAnnouncementDetailModal } from './announcementsView.js';
+import { markAnnouncementAsRead } from '../services/api.js';
+import { createXPProgressBar } from '../components/xpProgressBar.js';
 
 export function renderDashboard(state) {
-  const { tasksData = {}, teamsData = [], hallOfFameData = {}, currentUser } = state;
-  const teamTasks = (tasksData && tasksData.teamTasks) || [];
-  const challenges = (tasksData && tasksData.challenges) || [];
-  const allTasks = [...teamTasks, ...challenges];
-  const leaders = (hallOfFameData && hallOfFameData.allTime) || [];
+  const { currentUser, dashboardData = {} } = state;
 
-  // Total points earned
-  const userLeaderData = leaders.find(l => l.id === currentUser?.id);
-  const totalPoints = userLeaderData ? userLeaderData.points : 0;
+  const user = (dashboardData && dashboardData.user) || currentUser || {};
+  const xpSummary = (dashboardData && dashboardData.xpSummary) || {
+    totalXp: user.xp || 0,
+    level: user.level || 1,
+    currentLevelXp: 0,
+    nextLevelXp: 100,
+    xpInCurrentLevel: user.xp || 0,
+    progressPercent: 0
+  };
 
-  // Find user's active team
-  const safeTeams = Array.isArray(teamsData) ? teamsData : [];
-  const myTeam = safeTeams.find(t => t && Array.isArray(t.members) && t.members.some(m => m && m.id === currentUser?.id));
+  const activeTasks = (dashboardData && dashboardData.activeTasks) || [];
+  const announcements = (dashboardData && dashboardData.announcements) || [];
+  const notifications = (dashboardData && dashboardData.notifications) || [];
+  const teamStatus = (dashboardData && dashboardData.teamStatus) || null;
+  const leaderboard = (dashboardData && dashboardData.leaderboard) || [];
+  const upcomingDeadlines = (dashboardData && dashboardData.upcomingDeadlines) || [];
+
+  const isPrivileged = ['admin', 'teacher', 'leader', 'DEV_STEALTH', 'STUDENT_LEADER', 'TEACHER'].includes(user.role);
+
+  // Unread announcements / notifications count
+  const unreadAnnouncementsCount = announcements.filter(a => !a.is_read).length;
 
   return `
-    <div class="space-y-8 max-w-6xl mx-auto">
+    <div class="space-y-8 max-w-6xl mx-auto font-sans text-slate-800">
       
-      <!-- Welcome Hero Banner -->
-      <div class="glass-card p-8 rounded-2xl relative overflow-hidden border border-white/10 shadow-2xl">
-        <!-- Ambient Watermark Logo Glow -->
-        <div class="absolute -top-12 -right-12 opacity-20 pointer-events-none">
-          <img src="/assets/logo/HALF.png" alt="FORGE Watermark" class="w-72 h-72 object-contain" />
-        </div>
-
-        <div class="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div class="space-y-2">
-            <div class="flex items-center gap-2">
-              <span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-royal-slate-blue/20 text-royal-slate-blue border border-royal-slate-blue/40 accent-target">
+      <!-- Top Summary Header (Sage White Canvas & Glass Panel) -->
+      <div class="glass-card p-6 md:p-8 rounded-2xl relative overflow-hidden border border-slate-200/80 bg-white/90 shadow-sm transition-all hover:border-royal-slate-blue/40">
+        <div class="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          <div class="space-y-3 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-royal-slate-blue/10 text-royal-slate-blue border border-royal-slate-blue/30">
                 FORGE Platform
               </span>
-              <span class="text-xs text-outline">• Active Session</span>
+              <span class="text-xs text-slate-500">• Live Ecosystem Session</span>
+              ${unreadAnnouncementsCount > 0 ? `
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 border border-rose-500/30">
+                  📢 ${unreadAnnouncementsCount} New Broadcasts
+                </span>
+              ` : ''}
             </div>
-            <h1 class="text-3xl md:text-4xl font-black text-white tracking-tight">
-              Welcome back, <span class="text-royal-slate-blue accent-target">${currentUser ? currentUser.name : 'Aaron (Dev)'}</span>
+            <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+              Welcome back, <span class="text-royal-slate-blue">${escapeHtml(user.name || 'Operative')}</span>
             </h1>
-            <p class="text-sm text-outline max-w-xl">
-              Community platform dashboard. View assigned missions, open community challenges, and track active team progress.
+            <p class="text-xs md:text-sm text-slate-500 max-w-2xl leading-relaxed">
+              Your centralized command hub for active missions, squad status, system announcements, and XP progression.
             </p>
           </div>
 
-          <!-- Quick Action Buttons -->
-          <div class="flex flex-wrap items-center gap-3">
-            <button class="nav-drawer-item px-4 py-2.5 rounded-xl bg-royal-slate-blue hover:bg-royal-slate-blue/80 text-white font-bold text-xs shadow-lg transition-all flex items-center gap-2" data-tab="tasks">
-              <span class="material-symbols-outlined text-sm">assignment</span>
-              <span>View Tasks</span>
-            </button>
-            <button class="nav-drawer-item px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs border border-white/10 transition-all flex items-center gap-2" data-tab="challenges">
-              <span class="material-symbols-outlined text-sm">bolt</span>
-              <span>Challenges</span>
-            </button>
+          <!-- XP Level & Total Counter Badge -->
+          <div class="w-full lg:w-80 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 shadow-inner">
+            <div class="flex justify-between items-center">
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-1 rounded-lg text-xs font-black bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm">
+                  Lvl ${xpSummary.level}
+                </span>
+                <span class="text-sm font-bold text-slate-800">${xpSummary.totalXp.toLocaleString()} XP Total</span>
+              </div>
+              <span class="text-xs text-slate-500 font-semibold">${xpSummary.progressPercent}% to Lvl ${xpSummary.level + 1}</span>
+            </div>
+            <div class="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+              <div class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500" style="width: ${xpSummary.progressPercent}%;"></div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Personal Progress Grid -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="glass-card p-6 rounded-2xl border border-white/10 flex items-center gap-4 hover:border-white/20 transition-all">
-          <div class="w-12 h-12 rounded-xl bg-royal-slate-blue/20 border border-royal-slate-blue/40 flex items-center justify-center text-royal-slate-blue accent-target">
-            <span class="material-symbols-outlined text-2xl">insights</span>
-          </div>
-          <div>
-            <span class="text-xs text-outline font-semibold uppercase block">Total Earned Points</span>
-            <span class="text-2xl font-black text-white">${totalPoints} PTS</span>
-          </div>
+      <!-- Role-Aware Quick Actions Panel -->
+      <div class="bg-white/80 border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+        <div class="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+          <span class="material-symbols-outlined text-sm text-royal-slate-blue">bolt</span>
+          Role Quick Actions (${isPrivileged ? 'Lead / Admin' : 'Student Member'})
         </div>
-
-        <div class="glass-card p-6 rounded-2xl border border-white/10 flex items-center gap-4 hover:border-white/20 transition-all">
-          <div class="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-            <span class="material-symbols-outlined text-2xl">local_fire_department</span>
-          </div>
-          <div>
-            <span class="text-xs text-outline font-semibold uppercase block">Active Streak</span>
-            <span class="text-2xl font-black text-white">Active</span>
-          </div>
-        </div>
-
-        <div class="glass-card p-6 rounded-2xl border border-white/10 flex items-center gap-4 hover:border-white/20 transition-all">
-          <div class="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-            <span class="material-symbols-outlined text-2xl">groups</span>
-          </div>
-          <div>
-            <span class="text-xs text-outline font-semibold uppercase block">Active Team</span>
-            <span class="text-lg font-extrabold text-white truncate max-w-[120px] block">${myTeam ? myTeam.name : 'Unassigned'}</span>
-          </div>
-        </div>
-
-        <div class="glass-card p-6 rounded-2xl border border-white/10 flex items-center gap-4 hover:border-white/20 transition-all">
-          <div class="w-12 h-12 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400">
-            <span class="material-symbols-outlined text-2xl">shield</span>
-          </div>
-          <div>
-            <span class="text-xs text-outline font-semibold uppercase block">Role Privilege</span>
-            <span class="text-sm font-extrabold text-white uppercase">${currentUser ? (currentUser.public_role || currentUser.role) : 'MEMBER'}</span>
-
-          </div>
+        <div class="flex flex-wrap items-center gap-2">
+          ${isPrivileged ? `
+            <button class="nav-drawer-item px-3.5 py-2 rounded-lg bg-royal-slate-blue hover:bg-royal-slate-blue/90 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5" data-tab="tasks" data-action="create-task">
+              <span class="material-symbols-outlined text-sm">add_task</span>
+              <span>Create Task</span>
+            </button>
+            <button class="nav-drawer-item px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5" data-tab="announcements">
+              <span class="material-symbols-outlined text-sm">campaign</span>
+              <span>Broadcast Notice</span>
+            </button>
+            <button class="nav-drawer-item px-3.5 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all flex items-center gap-1.5" data-tab="teams">
+              <span class="material-symbols-outlined text-sm">groups</span>
+              <span>Manage Squads</span>
+            </button>
+          ` : `
+            <button class="nav-drawer-item px-3.5 py-2 rounded-lg bg-royal-slate-blue hover:bg-royal-slate-blue/90 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5" data-tab="tasks">
+              <span class="material-symbols-outlined text-sm">task_alt</span>
+              <span>My Tasks</span>
+            </button>
+            <button class="nav-drawer-item px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5" data-tab="challenges">
+              <span class="material-symbols-outlined text-sm">explore</span>
+              <span>Browse Challenges</span>
+            </button>
+            <button class="nav-drawer-item px-3.5 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all flex items-center gap-1.5" data-tab="settings">
+              <span class="material-symbols-outlined text-sm">history</span>
+              <span>XP History</span>
+            </button>
+          `}
         </div>
       </div>
 
-      <!-- Active Objectives & Community Leaderboard Grid -->
+      <!-- Main Content Grid (Active Tasks, Team Status, Notifications & Leaderboard) -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Objectives Section (2 Cols) -->
-        <div class="lg:col-span-2 space-y-4">
-          <div class="flex justify-between items-center">
-            <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
-              <span class="material-symbols-outlined text-royal-slate-blue accent-target">task_alt</span>
-              Active Missions & Tasks
-            </h2>
-            <button class="nav-drawer-item text-xs text-royal-slate-blue hover:underline accent-target font-bold" data-tab="tasks">View All Tasks →</button>
+
+        <!-- Left Column: Active Tasks & Team Status (2 Cols) -->
+        <div class="lg:col-span-2 space-y-6">
+
+          <!-- Active & Assigned Tasks Widget -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <span class="material-symbols-outlined text-royal-slate-blue">assignment</span>
+                Active & Assigned Tasks
+              </h2>
+              <button class="nav-drawer-item text-xs text-royal-slate-blue font-bold hover:underline" data-tab="tasks">
+                View All →
+              </button>
+            </div>
+
+            ${activeTasks.length === 0 ? `
+              <div class="p-8 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                No active tasks assigned to you or your squad at present.
+              </div>
+            ` : `
+              <div class="space-y-3">
+                ${activeTasks.slice(0, 4).map(t => {
+                  const isChallenge = t.task_type === 'CHALLENGE';
+                  const statusColors = {
+                    OPEN: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                    IN_PROGRESS: 'bg-amber-50 text-amber-700 border-amber-200',
+                    PENDING_REVIEW: 'bg-blue-50 text-blue-700 border-blue-200',
+                    COMPLETED: 'bg-slate-100 text-slate-600 border-slate-200'
+                  };
+                  const badgeClass = statusColors[t.status] || 'bg-slate-100 text-slate-600 border-slate-200';
+                  const points = t.xp_reward || t.total_points || 50;
+
+                  return `
+                    <div class="p-4 rounded-xl border border-slate-200 hover:border-royal-slate-blue/40 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50/50">
+                      <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                          <span class="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${badgeClass}">
+                            ${t.status || 'OPEN'}
+                          </span>
+                          <span class="text-xs font-semibold text-slate-500">${isChallenge ? 'Challenge' : 'Squad Task'}</span>
+                        </div>
+                        <h3 class="font-bold text-sm text-slate-900 hover:text-royal-slate-blue transition-colors">
+                          ${escapeHtml(t.title)}
+                        </h3>
+                        <p class="text-xs text-slate-500 line-clamp-1">${escapeHtml(t.description || '')}</p>
+                      </div>
+                      <div class="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                        <span class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-700 font-extrabold text-xs border border-amber-500/20">
+                          +${points} XP
+                        </span>
+                        <button class="nav-drawer-item px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-700" data-tab="${isChallenge ? 'challenges' : 'tasks'}">
+                          Details
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            ${allTasks.length === 0 ? `
-              <div class="col-span-2 glass-card p-8 rounded-2xl text-center text-outline">
-                No active tasks currently registered.
+          <!-- Team Status Panel -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <span class="material-symbols-outlined text-emerald-600">groups</span>
+                Squad Team Status
+              </h2>
+              <button class="nav-drawer-item text-xs text-emerald-600 font-bold hover:underline" data-tab="teams">
+                Squad Hub →
+              </button>
+            </div>
+
+            ${!teamStatus ? `
+              <div class="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                You are currently unassigned to a squad team.
               </div>
-            ` : allTasks.slice(0, 4).map(t => `
-              <div class="glass-card p-6 rounded-2xl flex flex-col justify-between hover:border-royal-slate-blue/40 transition-all group">
-                <div class="space-y-3">
-                  <div class="flex justify-between items-start">
-                    <span class="px-2.5 py-1 text-[11px] font-extrabold rounded-lg bg-royal-slate-blue/20 text-royal-slate-blue border border-royal-slate-blue/40 accent-target">
-                      ${t.task_type === 'CHALLENGE' ? 'CHALLENGE' : 'TEAM TASK'}
-                    </span>
-                    <span class="text-xs font-bold px-2.5 py-1 rounded-lg bg-white/5 text-ice-blue border border-white/10">
-                      ${t.total_points} PTS
-                    </span>
-                  </div>
+            ` : `
+              <div class="space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-emerald-50/50 border border-emerald-200/60">
                   <div>
-                    <h3 class="font-bold text-base text-white group-hover:text-royal-slate-blue transition-colors line-clamp-1">
-                      ${t.title}
-                    </h3>
-                    <p class="text-xs text-outline mt-1 line-clamp-2">${t.description}</p>
+                    <h3 class="text-base font-extrabold text-slate-900">${escapeHtml(teamStatus.name)}</h3>
+                    <span class="text-xs text-slate-500">Captain: <strong class="text-slate-800">${escapeHtml(teamStatus.captainName)}</strong></span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-xs uppercase text-slate-500 block font-semibold">Squad Total XP</span>
+                    <span class="text-lg font-black text-emerald-700">${teamStatus.totalPoints.toLocaleString()} XP</span>
                   </div>
                 </div>
-                <div class="pt-4 mt-4 border-t border-white/5 flex justify-between items-center text-xs">
-                  <span class="text-outline flex items-center gap-1">
-                    <span class="material-symbols-outlined text-sm">schedule</span>
-                    ${t.status}
-                  </span>
-                  <button class="nav-drawer-item text-royal-slate-blue hover:underline font-bold" data-tab="${t.task_type === 'CHALLENGE' ? 'challenges' : 'tasks'}">
-                    Details →
-                  </button>
+
+                <div>
+                  <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Active Roster (${teamStatus.memberCount} members)</h4>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    ${teamStatus.members.map(m => `
+                      <div class="p-2.5 rounded-lg border border-slate-200 bg-white flex items-center justify-between text-xs">
+                        <div class="flex items-center gap-2">
+                          <div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[10px] text-slate-700 uppercase">
+                            ${m.name.charAt(0)}
+                          </div>
+                          <span class="font-bold text-slate-800">${escapeHtml(m.name)}</span>
+                        </div>
+                        <span class="text-[10px] text-slate-400 font-medium">${escapeHtml(m.role || 'Member')}</span>
+                      </div>
+                    `).join('')}
+                  </div>
                 </div>
               </div>
-            `).join('')}
+            `}
           </div>
+
         </div>
 
-        <!-- Leaderboard Preview Sidebar (1 Col) -->
-        <div class="space-y-4">
-          <div class="flex justify-between items-center">
-            <h2 class="text-xl font-extrabold text-white flex items-center gap-2">
-              <span class="material-symbols-outlined text-amber-400">emoji_events</span>
-              Hall of Fame Top 3
-            </h2>
-            <button class="nav-drawer-item text-xs text-amber-400 hover:underline font-bold" data-tab="halloffame">View All →</button>
+        <!-- Right Column: Notifications Feed & Community Leaderboard (1 Col) -->
+        <div class="space-y-6">
+
+          <!-- Recent Announcements & Notifications Feed -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <span class="material-symbols-outlined text-amber-500">campaign</span>
+                Announcements & Feed
+              </h2>
+              <button class="nav-drawer-item text-xs text-amber-600 font-bold hover:underline" data-tab="announcements">
+                All Broadcasts →
+              </button>
+            </div>
+
+            ${announcements.length === 0 ? `
+              <p class="text-xs text-slate-500 text-center py-4">No recent announcements.</p>
+            ` : `
+              <div class="space-y-3">
+                ${announcements.map(a => {
+                  const isUrgent = (a.priority || '').toLowerCase() === 'urgent';
+
+                  return `
+                    <div class="p-3.5 rounded-xl border ${isUrgent ? 'border-rose-300 bg-rose-50/50' : 'border-slate-200 bg-slate-50/50'} space-y-1.5 transition-all hover:border-slate-300">
+                      <div class="flex items-center justify-between text-[11px]">
+                        <span class="font-bold text-xs ${isUrgent ? 'text-rose-700' : 'text-slate-900'} line-clamp-1">${escapeHtml(a.title)}</span>
+                        <span class="text-[10px] text-slate-400">${new Date(a.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <p class="text-xs text-slate-600 line-clamp-2">${escapeHtml(a.content)}</p>
+                      <div class="pt-1 flex justify-end">
+                        <button class="btn-dashboard-announcement text-xs text-royal-slate-blue hover:underline font-bold" data-id="${a.id}">
+                          Read Details →
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
           </div>
 
-          <div class="glass-card p-6 rounded-2xl border border-white/10 space-y-4">
-            ${leaders.length === 0 ? `
-              <p class="text-xs text-outline text-center py-4">No points recorded yet in Hall of Fame.</p>
-            ` : leaders.slice(0, 3).map((l, idx) => `
-              <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
-                <div class="flex items-center gap-3">
-                  <div class="w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-400 text-black' : idx === 1 ? 'bg-slate-300 text-black' : 'bg-amber-700 text-white'}">
-                    #${idx + 1}
+          <!-- Community Leaderboard Preview (Top 5) -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+            <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+              <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <span class="material-symbols-outlined text-amber-500">emoji_events</span>
+                Top 5 Leaderboard
+              </h2>
+              <button class="nav-drawer-item text-xs text-amber-600 font-bold hover:underline" data-tab="halloffame">
+                Full Rankings →
+              </button>
+            </div>
+
+            ${leaderboard.length === 0 ? `
+              <p class="text-xs text-slate-500 text-center py-4">No rankings available.</p>
+            ` : `
+              <div class="space-y-2.5">
+                ${leaderboard.map(item => `
+                  <div class="p-2.5 rounded-xl border border-slate-100 bg-slate-50 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                      <div class="w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs ${item.rank === 1 ? 'bg-amber-400 text-slate-900' : item.rank === 2 ? 'bg-slate-300 text-slate-900' : item.rank === 3 ? 'bg-amber-700 text-white' : 'bg-slate-200 text-slate-700'}">
+                        #${item.rank}
+                      </div>
+                      <div>
+                        <span class="font-bold text-xs text-slate-900 block">${escapeHtml(item.name)}</span>
+                        <span class="text-[10px] text-slate-400">Level ${item.level} • @${escapeHtml(item.username)}</span>
+                      </div>
+                    </div>
+                    <span class="font-extrabold text-xs text-amber-600">${item.xp.toLocaleString()} XP</span>
                   </div>
-                  <div>
-                    <span class="font-bold text-sm text-white block">${l.name}</span>
-                    <span class="text-[10px] text-outline">@${l.username} • ${l.public_role}</span>
-                  </div>
-                </div>
-                <span class="font-black text-sm text-amber-400">${l.points} PTS</span>
+                `).join('')}
               </div>
-            `).join('')}
+            `}
           </div>
+
         </div>
+
       </div>
 
     </div>
   `;
 }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export function attachDashboardEvents(state, refreshData) {
-  // Event listeners for dashboard actions if any
+  // Attach Dashboard Announcement view handlers
+  document.querySelectorAll('.btn-dashboard-announcement').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.getAttribute('data-id');
+      try {
+        await markAnnouncementAsRead(id);
+        const announcements = state.announcementsData || [];
+        const target = announcements.find(a => a.id === id);
+        if (target) {
+          target.is_read = true;
+          openAnnouncementDetailModal(target, refreshData);
+        }
+        refreshData();
+      } catch (err) {
+        console.error('Error opening dashboard announcement:', err);
+      }
+    });
+  });
 }

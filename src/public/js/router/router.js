@@ -1,4 +1,5 @@
 import { renderDashboard, attachDashboardEvents } from '../views/dashboardView.js';
+import { renderAnnouncementsView, attachAnnouncementsEvents } from '../views/announcementsView.js';
 import { renderTasksView, attachTasksEvents } from '../views/tasksView.js';
 import { renderChallengesView, attachChallengesEvents } from '../views/challengesView.js';
 import { renderTeamsView, attachTeamsEvents } from '../views/teamsView.js';
@@ -8,17 +9,26 @@ import { renderSignUpView, attachSignUpEvents } from '../views/signUpView.js';
 import { renderSettingsView, attachSettingsEvents } from '../views/settingsView.js';
 import { renderDevDashboardView, attachDevDashboardEvents } from '../views/devDashboardView.js';
 import { renderComponentsTestView, attachComponentsTestEvents } from '../views/componentsTestView.js';
+import { renderProfileView, attachProfileEvents } from '../views/profileView.js';
+import { renderLeaderboardView, attachLeaderboardEvents } from '../views/leaderboardView.js';
+import { renderNotificationsView, attachNotificationsEvents } from '../views/notificationsView.js';
+import { renderAdminView, attachAdminEvents } from '../views/adminView.js';
 import { updateActiveNavHighlight } from '../components/drawer.js';
 
 const routes = {
   dashboard: { render: renderDashboard, attach: attachDashboardEvents },
+  announcements: { render: renderAnnouncementsView, attach: attachAnnouncementsEvents },
   tasks: { render: renderTasksView, attach: attachTasksEvents },
   challenges: { render: renderChallengesView, attach: attachChallengesEvents },
   teams: { render: renderTeamsView, attach: attachTeamsEvents },
-  halloffame: { render: renderHallOfFameView, attach: attachHallOfFameEvents },
+  halloffame: { render: renderLeaderboardView, attach: attachLeaderboardEvents },
+  leaderboard: { render: renderLeaderboardView, attach: attachLeaderboardEvents },
+  notifications: { render: renderNotificationsView, attach: attachNotificationsEvents },
+  admin: { render: renderAdminView, attach: attachAdminEvents },
   login: { render: renderLoginView, attach: attachLoginEvents },
   signup: { render: renderSignUpView, attach: attachSignUpEvents },
   settings: { render: renderSettingsView, attach: attachSettingsEvents },
+  profile: { render: renderProfileView, attach: attachProfileEvents },
   devdashboard: { render: renderDevDashboardView, attach: attachDevDashboardEvents },
   componentstest: { render: renderComponentsTestView, attach: attachComponentsTestEvents }
 };

@@ -127,19 +127,19 @@ export const TaskSubmissionFactory = {
     const submission = {
       id: overrides.id || `sub_fact_${timestamp}`,
       task_id: overrides.task_id || overrides.taskId,
-      team_id: overrides.team_id || overrides.teamId || null,
-      submitted_by_user_id: overrides.submitted_by_user_id || overrides.userId,
-      proof_file_url: overrides.proof_file_url || null,
+      submitted_by: overrides.submitted_by || overrides.submitted_by_user_id || overrides.userId,
+      proof_url: overrides.proof_url || overrides.proof_file_url || null,
       proof_notes: overrides.proof_notes || 'Factory proof notes',
-      status: overrides.status || 'PENDING_APPROVAL'
+      version: overrides.version || 1,
+      status: overrides.status || 'submitted'
     };
 
     const stmt = targetDb.prepare(`
-      INSERT OR REPLACE INTO task_submissions (id, task_id, team_id, submitted_by_user_id, proof_file_url, proof_notes, status)
+      INSERT OR REPLACE INTO task_submissions (id, task_id, submitted_by, proof_url, proof_notes, version, status)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(submission.id, submission.task_id, submission.team_id, submission.submitted_by_user_id, submission.proof_file_url, submission.proof_notes, submission.status);
+    stmt.run(submission.id, submission.task_id, submission.submitted_by, submission.proof_url, submission.proof_notes, submission.version, submission.status);
     return submission;
   }
 };

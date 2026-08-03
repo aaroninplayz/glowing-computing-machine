@@ -206,6 +206,38 @@ export const teamSchemas = {
     body: z.object({
       reason: z.string().optional()
     })
+  },
+  generateRandom: {
+    body: z.object({
+      team_size: z.union([z.number().int().positive(), z.string()]).optional(),
+      member_ids: z.array(z.string()).optional(),
+      prefix: z.string().optional()
+    })
+  },
+  swap: {
+    body: z.object({
+      user1_id: z.string().min(1, 'Member 1 ID is required'),
+      user2_id: z.string().min(1, 'Member 2 ID is required'),
+      team1_id: z.string().optional(),
+      team2_id: z.string().optional()
+    })
+  },
+  lock: {
+    body: z.object({
+      user_id: z.string().min(1, 'User ID is required'),
+      team_id: z.string().optional(),
+      is_locked: z.union([z.boolean(), z.number(), z.string()]).optional()
+    })
+  },
+  rename: {
+    body: z.object({
+      name: z.string().trim().min(1, 'Team name is required')
+    })
+  },
+  reassignTask: {
+    body: z.object({
+      task_id: z.string().nullable().optional()
+    })
   }
 };
 
@@ -218,3 +250,103 @@ export const hallOfFameSchemas = {
     })
   }
 };
+
+export const subtaskSchemas = {
+  create: {
+    body: z.object({
+      title: z.string({ required_error: 'Subtask title is required' }).trim().min(1, 'Subtask title is required'),
+      description: z.string().optional(),
+      assigned_to: z.string().nullable().optional(),
+      priority: z.string().optional(),
+      deadline: z.string().optional(),
+      status: z.string().optional(),
+      attachments: z.any().optional(),
+      comments: z.any().optional()
+    })
+  },
+  update: {
+    body: z.object({
+      title: z.string().trim().min(1).optional(),
+      description: z.string().optional(),
+      assigned_to: z.string().nullable().optional(),
+      priority: z.string().optional(),
+      deadline: z.string().optional(),
+      status: z.string().optional(),
+      attachments: z.any().optional(),
+      comments: z.any().optional()
+    })
+  },
+  comment: {
+    body: z.object({
+      text: z.string({ required_error: 'Comment text is required' }).trim().min(1, 'Comment text is required')
+    })
+  }
+};
+
+export const submissionSchemas = {
+  create: {
+    body: z.object({
+      proof_notes: z.string().optional(),
+      proof_url: z.string().optional(),
+      status: z.string().optional(),
+      attachments: z.array(z.object({
+        attachment_type: z.string().optional(),
+        content: z.string().min(1, 'Content is required'),
+        file_name: z.string().optional(),
+        file_size: z.number().optional(),
+        mime_type: z.string().optional()
+      })).optional()
+    })
+  },
+  review: {
+    body: z.object({
+      status: z.string().min(1, 'Review status is required'),
+      review_notes: z.string().optional()
+    })
+  }
+};
+
+export const reviewSchemas = {
+  create: {
+    body: z.object({
+      rating: z.union([z.number(), z.string()]).optional(),
+      comments: z.string().optional(),
+      suggestions: z.string().optional(),
+      improvements: z.string().optional(),
+      status: z.string().optional()
+    })
+  },
+  update: {
+    body: z.object({
+      rating: z.union([z.number(), z.string()]).optional(),
+      comments: z.string().optional(),
+      suggestions: z.string().optional(),
+      improvements: z.string().optional(),
+      status: z.string().optional()
+    })
+  }
+};
+
+export const announcementSchemas = {
+  create: {
+    body: z.object({
+      title: z.string({ required_error: 'Title is required' }).trim().min(1, 'Title is required'),
+      content: z.string({ required_error: 'Content is required' }).trim().min(1, 'Content is required'),
+      category: z.string().optional(),
+      priority: z.string().optional(),
+      pinned: z.boolean().optional()
+    })
+  },
+  update: {
+    body: z.object({
+      title: z.string().optional(),
+      content: z.string().optional(),
+      category: z.string().optional(),
+      priority: z.string().optional(),
+      pinned: z.boolean().optional()
+    })
+  }
+};
+
+
+

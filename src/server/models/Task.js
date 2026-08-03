@@ -25,51 +25,104 @@ export const TaskModel = {
       ORDER BY ts.created_at DESC
     `).all(id);
 
+    const subtaskRows = db.prepare(`
+      SELECT st.*, u.name as assigned_to_name, c.name as created_by_name
+      FROM subtasks st
+      LEFT JOIN users u ON st.assigned_to = u.id
+      LEFT JOIN users c ON st.created_by = c.id
+      WHERE st.task_id = ?
+      ORDER BY st.created_at ASC
+    `).all(id);
+
+    const subtasks = subtaskRows.map(row => {
+      let attachments = [];
+      let comments = [];
+      if (row.attachments) {
+        try { attachments = JSON.parse(row.attachments); } catch (_) { attachments = [row.attachments]; }
+      }
+      if (row.comments) {
+        try { comments = JSON.parse(row.comments); } catch (_) { comments = []; }
+      }
+      return { ...row, attachments, comments };
+    });
+
+    const totalSubtasks = subtasks.length;
+    const completedSubtasks = subtasks.filter(s => (s.status || '').toLowerCase() === 'done' || s.is_completed === 1).length;
+    const progressPercentage = totalSubtasks > 0 ? Math.round((completedSubtasks / totalSubtasks) * 100) : 0;
+
     task.submissions = submissions;
+    task.subtasks = subtasks;
+    task.subtask_summary = { total: totalSubtasks, completed: completedSubtasks, percentage: progressPercentage };
+    task.progress_percentage = progressPercentage;
     return task;
   },
 
+  formatTaskRowWithProgress(task) {
+    if (!task) return task;
+    const subtaskCount = task.subtask_count || 0;
+    const completedCount = task.completed_subtasks_count || 0;
+    const progressPercentage = subtaskCount > 0 ? Math.round((completedCount / subtaskCount) * 100) : 0;
+    return {
+      ...task,
+      subtask_summary: { total: subtaskCount, completed: completedCount, percentage: progressPercentage },
+      progress_percentage: progressPercentage
+    };
+  },
+
   getAllGrouped() {
+    const selectClause = `
+      t.*, tm.name as assigned_team_name, u.name as assigned_user_name,
+      (SELECT COUNT(*) FROM subtasks st WHERE st.task_id = t.id) as subtask_count,
+      (SELECT COUNT(*) FROM subtasks st WHERE st.task_id = t.id AND st.is_completed = 1) as completed_subtasks_count
+    `;
+
     const official = db.prepare(`
-      SELECT t.*, tm.name as assigned_team_name, u.name as assigned_user_name
+      SELECT ${selectClause}
       FROM tasks t
       LEFT JOIN teams tm ON t.assigned_team_id = tm.id
       LEFT JOIN users u ON t.assigned_user_id = u.id
       WHERE t.is_marketplace = 0
       ORDER BY t.created_at DESC
-    `).all();
+    `).all().map(t => this.formatTaskRowWithProgress(t));
 
     const teamTasks = db.prepare(`
-      SELECT t.*, tm.name as assigned_team_name, u.name as assigned_user_name
+      SELECT ${selectClause}
       FROM tasks t
       LEFT JOIN teams tm ON t.assigned_team_id = tm.id
       LEFT JOIN users u ON t.assigned_user_id = u.id
       WHERE t.is_marketplace = 0 AND t.task_type = 'TEAM_TASK'
       ORDER BY t.created_at DESC
-    `).all();
+    `).all().map(t => this.formatTaskRowWithProgress(t));
 
     const challenges = db.prepare(`
-      SELECT t.*, tm.name as assigned_team_name, u.name as assigned_user_name
+      SELECT ${selectClause}
       FROM tasks t
       LEFT JOIN teams tm ON t.assigned_team_id = tm.id
       LEFT JOIN users u ON t.assigned_user_id = u.id
       WHERE t.is_marketplace = 0 AND t.task_type = 'CHALLENGE'
       ORDER BY t.created_at DESC
-    `).all();
+    `).all().map(t => this.formatTaskRowWithProgress(t));
 
     const marketplace = db.prepare(`
-      SELECT t.*, (SELECT COUNT(*) FROM task_upvotes tu WHERE tu.task_id = t.id) as upvotes
+      SELECT ${selectClause}, (SELECT COUNT(*) FROM task_upvotes tu WHERE tu.task_id = t.id) as upvotes
       FROM tasks t
+      LEFT JOIN teams tm ON t.assigned_team_id = tm.id
+      LEFT JOIN users u ON t.assigned_user_id = u.id
       WHERE t.is_marketplace = 1
       ORDER BY upvotes DESC
-    `).all();
+    `).all().map(t => this.formatTaskRowWithProgress(t));
 
     return { official, marketplace, teamTasks, challenges };
   },
 
   queryTasks({ status, difficulty, task_type, assigned_to, search }) {
+    const selectClause = `
+      t.*, tm.name as assigned_team_name, u.name as assigned_user_name,
+      (SELECT COUNT(*) FROM subtasks st WHERE st.task_id = t.id) as subtask_count,
+      (SELECT COUNT(*) FROM subtasks st WHERE st.task_id = t.id AND st.is_completed = 1) as completed_subtasks_count
+    `;
     let sql = `
-      SELECT t.*, tm.name as assigned_team_name, u.name as assigned_user_name
+      SELECT ${selectClause}
       FROM tasks t
       LEFT JOIN teams tm ON t.assigned_team_id = tm.id
       LEFT JOIN users u ON t.assigned_user_id = u.id
@@ -100,7 +153,8 @@ export const TaskModel = {
     }
 
     sql += ` ORDER BY t.created_at DESC`;
-    return db.prepare(sql).all(...params);
+    const rows = db.prepare(sql).all(...params);
+    return rows.map(t => this.formatTaskRowWithProgress(t));
   },
 
   create({ id, title, description, instructions, resources, total_points, xp_reward, badge_reward, difficulty, task_type, mode, is_marketplace, assigned_team_id, assigned_user_id, assigned_by, proof_requirements, deadline, status }) {

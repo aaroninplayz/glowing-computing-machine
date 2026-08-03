@@ -12,3 +12,5 @@ export { renderRichTextEditor, attachRichTextEditorEvents } from './richTextEdit
 export { renderFileUpload, attachFileUploadEvents } from './fileUpload.js';
 export { showConfirmDialog } from './confirmDialog.js';
 export { initTooltips } from './tooltip.js';
+export { createXPProgressBar } from './xpProgressBar.js';
+export { createXPLedgerView } from './xpLedger.js';

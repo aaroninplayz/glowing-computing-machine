@@ -90,6 +90,22 @@ export async function fetchAllUsers() {
   return requestApi('/users');
 }
 
+export async function fetchUserXpHistory(userId, page = 1, limit = 20) {
+  return requestApi(`/users/${userId}/xp-history?page=${page}&limit=${limit}`);
+}
+
+export async function fetchDashboardData() {
+  return requestApi('/dashboard');
+}
+
+export async function fetchUserProfile(userId) {
+  return requestApi(`/users/${userId}/profile`);
+}
+
+export async function fetchLeaderboard(category = 'xp', period = 'all_time', limit = 50, page = 1) {
+  return requestApi(`/leaderboard?category=${category}&period=${period}&limit=${limit}&page=${page}`);
+}
+
 export async function updateUserProfile(targetUserId, profileData) {
   return requestApi(`/users/${targetUserId}`, {
     method: 'PATCH',
@@ -154,6 +170,41 @@ export async function deleteTask(taskId) {
   });
 }
 
+// Subtasks API Services
+export async function fetchSubtasks(taskId) {
+  return requestApi(`/tasks/${taskId}/subtasks`);
+}
+
+export async function createSubtask(taskId, subtaskData) {
+  return requestApi(`/tasks/${taskId}/subtasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subtaskData)
+  });
+}
+
+export async function updateSubtask(taskId, subtaskId, subtaskData) {
+  return requestApi(`/tasks/${taskId}/subtasks/${subtaskId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subtaskData)
+  });
+}
+
+export async function deleteSubtask(taskId, subtaskId) {
+  return requestApi(`/tasks/${taskId}/subtasks/${subtaskId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function addSubtaskComment(taskId, subtaskId, text) {
+  return requestApi(`/tasks/${taskId}/subtasks/${subtaskId}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+}
+
 export async function suggestTask({ title, description, total_points, task_type, mode, user_id }) {
   return requestApi('/tasks/suggest', {
     method: 'POST',
@@ -181,6 +232,115 @@ export async function submitTaskProof(taskId, formData) {
   return requestApi(`/tasks/${taskId}/submit`, {
     method: 'POST',
     body: formData
+  });
+}
+
+export async function fetchTaskSubmissions(taskId) {
+  return requestApi(`/tasks/${taskId}/submissions`);
+}
+
+export async function createTaskSubmission(taskId, payload) {
+  return requestApi(`/tasks/${taskId}/submissions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function resubmitTaskSubmission(taskId, payload) {
+  return requestApi(`/tasks/${taskId}/submissions/resubmit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function reviewTaskSubmission(submissionId, payload) {
+  return requestApi(`/submissions/${submissionId}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function createSubmissionReview(submissionId, payload) {
+  return requestApi(`/submissions/${submissionId}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchSubmissionReviews(submissionId) {
+  return requestApi(`/submissions/${submissionId}/reviews`);
+}
+
+export async function fetchReviewDetails(reviewId) {
+  return requestApi(`/reviews/${reviewId}`);
+}
+
+export async function updateSubmissionReview(reviewId, payload) {
+  return requestApi(`/reviews/${reviewId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteSubmissionReview(reviewId) {
+  return requestApi(`/reviews/${reviewId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function fetchAnnouncements(params = {}) {
+  const query = new URLSearchParams();
+  if (params.category) query.append('category', params.category);
+  if (params.priority) query.append('priority', params.priority);
+  if (params.pinnedOnly) query.append('pinnedOnly', 'true');
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  return requestApi(`/announcements${qs}`);
+}
+
+export async function createAnnouncement(payload) {
+  return requestApi('/announcements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchAnnouncementDetails(id) {
+  return requestApi(`/announcements/${id}`);
+}
+
+export async function markAnnouncementAsRead(id) {
+  return requestApi(`/announcements/${id}/read`, {
+    method: 'POST'
+  });
+}
+
+export async function markAllAnnouncementsAsRead() {
+  return requestApi('/announcements/read-all', {
+    method: 'POST'
+  });
+}
+
+export async function fetchUnreadAnnouncementsCount() {
+  return requestApi('/announcements/unread-count');
+}
+
+export async function updateAnnouncement(id, payload) {
+  return requestApi(`/announcements/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteAnnouncement(id) {
+  return requestApi(`/announcements/${id}`, {
+    method: 'DELETE'
   });
 }
 
@@ -220,8 +380,72 @@ export async function dissolveTeam(teamId, reason = 'MANUAL') {
   });
 }
 
-export async function fetchHallOfFame() {
-  return requestApi('/hall-of-fame');
+export async function generateRandomTeams(payload) {
+  return requestApi('/teams/generate-random', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function swapTeamMembers(payload) {
+  return requestApi('/teams/swap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function toggleMemberLock(payload) {
+  return requestApi('/teams/members/lock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function renameTeam(teamId, name) {
+  return requestApi(`/teams/${teamId}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+}
+
+export async function reassignTeamTask(teamId, taskId) {
+  return requestApi(`/teams/${teamId}/reassign-task`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId })
+  });
+}
+
+export async function fetchTeamHistory(teamId = null) {
+  return requestApi(teamId ? `/teams/${teamId}/history` : '/teams/history');
+}
+
+export async function fetchHallOfFame(seasonId) {
+  return requestApi(seasonId ? `/hall-of-fame?seasonId=${seasonId}` : '/hall-of-fame');
+}
+
+export async function fetchSeasons() {
+  return requestApi('/hall-of-fame/seasons');
+}
+
+export async function createSeason(seasonData) {
+  return requestApi('/hall-of-fame/seasons', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(seasonData)
+  });
+}
+
+export async function updateSeason(seasonId, fields) {
+  return requestApi(`/hall-of-fame/seasons/${seasonId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields)
+  });
 }
 
 export async function awardTitle(data) {
@@ -233,12 +457,26 @@ export async function awardTitle(data) {
 }
 
 // Notification Engine API Service
-export async function fetchNotifications(unreadOnly = false) {
-  return requestApi(`/notifications?unreadOnly=${unreadOnly}`);
+export async function fetchNotifications(unreadOnly = false, category = null) {
+  let url = `/notifications?unreadOnly=${unreadOnly}`;
+  if (category) url += `&category=${encodeURIComponent(category)}`;
+  return requestApi(url);
 }
 
 export async function fetchUnreadNotificationCount() {
   return requestApi('/notifications/count');
+}
+
+export async function fetchNotificationPreferences() {
+  return requestApi('/notifications/preferences');
+}
+
+export async function updateNotificationPreferences(preferences) {
+  return requestApi('/notifications/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(preferences)
+  });
 }
 
 export async function markNotificationAsRead(id) {
@@ -261,6 +499,51 @@ export async function triggerTestNotification(title, message, type = 'INFO') {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, message, type })
   });
+}
+
+// Admin Panel API Services
+export async function fetchAdminConfig() {
+  return requestApi('/admin/config');
+}
+
+export async function updateAdminConfig(config) {
+  return requestApi('/admin/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config)
+  });
+}
+
+export async function fetchAdminFeatures() {
+  return requestApi('/admin/features');
+}
+
+export async function updateAdminFeature(key, isEnabled) {
+  return requestApi(`/admin/features/${key}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_enabled: isEnabled })
+  });
+}
+
+export async function fetchAdminUsers(role = null, limit = 50, offset = 0) {
+  let url = `/admin/users?limit=${limit}&offset=${offset}`;
+  if (role) url += `&role=${encodeURIComponent(role)}`;
+  return requestApi(url);
+}
+
+export async function updateAdminUserStatus(userId, fields) {
+  return requestApi(`/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields)
+  });
+}
+
+export async function fetchAdminAuditLog(limit = 50, offset = 0, actionType = null) {
+  let url = `/admin/audit-log?limit=${limit}&offset=${offset}`;
+  if (actionType) url += `&actionType=${encodeURIComponent(actionType)}`;
+  return requestApi(url);
 }
 
 // Activity Logging API Service
